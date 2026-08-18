@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/png" href="/ParticlesSimulations/favicon.png">
+    <link rel="apple-touch-icon" href="/ParticlesSimulations/favicon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Kinetic particle sculpture — type your message and watch it come alive as an interactive 3D particle display. Hover to disturb, double-click or press Space to explode.">
+    <title>Kinetic Particle Sculpture</title>
+
+    <!-- [5.1] Canonical Link -->
+    <link rel="canonical" href="https://myyupnope.github.io/ParticlesSimulations">
+
+    <!-- [5.2] Social Preview Meta Tags -->
+    <meta property="og:title" content="Kinetic Particle Sculpture">
+    <meta property="og:description"
+        content="Type your message and watch it come alive as an interactive 3D particle display. Hover to disturb, double-click or press Space to explode.">
+    <meta property="og:image" content="https://myyupnope.github.io/ParticlesSimulations/preview.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://myyupnope.github.io/ParticlesSimulations/preview.png">
+
+    <!-- Google Fonts Preconnect and Primary UI Font Loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Outfit:wght@300;400;600;700&family=Pacifico&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="./css/style.css">
+</head>
+
+<body>
+    <!-- [2.1 / 5.3] Fully Expanded Control Panel -->
+    <div id="control-panel">
+        <section id="message-section" class="control-section" aria-labelledby="message-heading">
+            <h2 id="message-heading">MESSAGE</h2>
+            <div class="message-options" role="tablist" aria-label="Message type">
+                <button type="button" class="message-option active" data-message-mode="text" role="tab"
+                    aria-selected="true" aria-controls="text-message-mode">Text</button>
+                <button type="button" class="message-option" data-message-mode="image" role="tab"
+                    aria-selected="false" aria-controls="image-message-mode">Image</button>
+            </div>
+
+            <div id="text-message-mode" class="message-mode" role="tabpanel">
+                <label for="text-input">Text</label>
+                <div class="input-wrapper">
+                    <input type="text" id="text-input" value="Bring your message!" maxlength="25" autocomplete="off">
+                    <span id="char-counter">0/25</span>
+                </div>
+
+                <div id="emoji-row" aria-label="Emoji message options">
+                    <span class="presets-label">Emojis:</span>
+                    <button class="emoji-chip" data-emoji="😀" title="😀 Grinning Face">😀</button>
+                    <button class="emoji-chip" data-emoji="😂" title="😂 Tears of Joy">😂</button>
+                    <button class="emoji-chip" data-emoji="😍" title="😍 Heart Eyes">😍</button>
+                    <button class="emoji-chip" data-emoji="🥰" title="🥰 Smiling with Hearts">🥰</button>
+                    <button class="emoji-chip" data-emoji="😎" title="😎 Cool Shades">😎</button>
+                    <button class="emoji-chip" data-emoji="🤔" title="🤔 Thinking Face">🤔</button>
+                    <button class="emoji-chip" data-emoji="😭" title="😭 Loudly Crying">😭</button>
+                    <button class="emoji-chip" data-emoji="😡" title="😡 Angry Face">😡</button>
+                    <button class="emoji-chip" data-emoji="😱" title="😱 Screaming">😱</button>
+                    <button class="emoji-chip" data-emoji="🥳" title="🥳 Partying">🥳</button>
+                    <button class="emoji-chip" data-emoji="👍" title="👍 Thumbs Up">👍</button>
+                    <button class="emoji-chip" data-emoji="👎" title="👎 Thumbs Down">👎</button>
+                    <button class="emoji-chip" data-emoji="👏" title="👏 Clapping">👏</button>
+                    <button class="emoji-chip" data-emoji="🙏" title="🙏 Folded Hands">🙏</button>
+                    <button class="emoji-chip" data-emoji="👌" title="👌 OK Hand">👌</button>
+                    <button class="emoji-chip" data-emoji="💪" title="💪 Flexed Biceps">💪</button>
+                    <button class="emoji-chip" data-emoji="❤️" title="❤️ Red Heart">❤️</button>
+                    <button class="emoji-chip" data-emoji="🔥" title="🔥 Fire">🔥</button>
+                    <button class="emoji-chip" data-emoji="✨" title="✨ Sparkles">✨</button>
+                    <button class="emoji-chip" data-emoji="🎉" title="🎉 Party Popper">🎉</button>
+                </div>
+            </div>
+
+            <div id="image-message-mode" class="message-mode" role="tabpanel" hidden>
+                <label for="image-input">Image</label>
+                <div class="image-upload-row">
+                    <label class="image-upload-button" for="image-input">Choose File</label>
+                    <input type="file" id="image-input" accept="image/*">
+                    <span id="image-name" class="field-hint">No file chosen</span>
+                </div>
+            </div>
+        </section>
+
+        <div id="appearance-row" class="control-row">
+            <div class="control-group">
+                <label for="theme-select">Theme</label>
+                <select id="theme-select">
+                    <option value="ember">Ember</option>
+                    <option value="arctic">Arctic</option>
+                    <option value="toxic">Toxic</option>
+                    <option value="neon">Neon</option>
+                    <option value="sakura">Sakura</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="font-select">Font</label>
+                <select id="font-select">
+                    <option value="Outfit">Outfit</option>
+                    <option value="Fira Code">Fira Code</option>
+                    <option value="Pacifico">Pacifico</option>
+                    <option value="Playfair Display">Playfair Display</option>
+                </select>
+            </div>
+        </div>
+
+        <section id="animations-section" class="control-section" aria-labelledby="animations-heading">
+            <h2 id="animations-heading">ANIMATIONS</h2>
+            <div id="presets-row">
+                <button class="preset-chip" data-text="KINETIC"><span class="chip-icon">⚡</span> Kinetic</button>
+                <button class="preset-chip" data-text="TORNADO"><span class="chip-icon">🌪️</span> Tornado</button>
+                <button class="preset-chip" data-text="BREEZE"><span class="chip-icon">💨</span> Breeze</button>
+                <button class="preset-chip" data-text="EXPLODE"><span class="chip-icon">💥</span> Explode</button>
+            </div>
+        </section>
+
+        <div id="actions-row">
+            <button id="capture-btn" title="Capture Screenshot">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    style="margin-right: 3px;">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                Capture
+            </button>
+            <button id="share-btn" title="Share Sculpture Link">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    style="margin-right: 3px;">
+                    <circle cx="18" cy="5" r="3"></circle>
+                    <circle cx="6" cy="12" r="3"></circle>
+                    <circle cx="18" cy="19" r="3"></circle>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+                Share
+            </button>
+            <button id="audio-btn" class="icon-action-btn" title="Toggle Sound (Mute/Unmute)" aria-pressed="true">
+                <span id="audio-icon">🔊</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- [4.3] Empty text Toast alert element -->
+    <div id="toast"></div>
+
+    <!-- [3.2] Screen Reader Live Announcements -->
+    <div id="sr-announce" class="sr-only" aria-live="polite"></div>
+
+    <!-- Stage: canvas container that excludes the menu area, so the sculpture
+         stays centered in the space not occupied by the control panel. -->
+    <div id="stage">
+        <!-- Procedural impact flash overlay for explosions -->
+        <div id="flash" aria-hidden="true"></div>
+
+        <div id="overlay">Arrows / 2-Finger Slide to rotate • +/- / Pinch to zoom • Dbl-click or Space to Explode</div>
+    </div>
+
+    <script type="module" src="./js/main.js"></script>
+</body>
+
+</html>
