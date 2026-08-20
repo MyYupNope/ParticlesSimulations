@@ -37,12 +37,12 @@ test('desktop: sidebar docks left, hamburger button is hidden, and sculpture cen
     // Hamburger button is hidden on desktop.
     expect(await page.locator('#menu-toggle-btn').isVisible()).toBe(false);
 
-    // Menu is a sidebar on the left half.
+    // Menu is a flush sidebar on the left edge.
     expect(info.panel.right).toBeLessThan(W / 2);
-    expect(info.panel.top).toBeCloseTo(20, 0);
-    expect(info.panel.left).toBeCloseTo(20, 0);
+    expect(info.panel.top).toBeCloseTo(0, 0);
+    expect(info.panel.left).toBeCloseTo(0, 0);
 
-    // Stage (and canvas) start right of the sidebar (~360px) and fill the rest.
+    // Stage (and canvas) start right of the sidebar (320px) and fill the rest.
     expect(info.stage.left).toBeGreaterThan(300);
     expect(info.stage.left).toBeLessThan(400);
     expect(info.canvas.left).toBeGreaterThan(300);

@@ -26,82 +26,81 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Outfit:wght@300;400;600;700&family=Pacifico&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="./css/tailwind.css">
 </head>
-<body>
+<body class="bg-bg text-text-primary font-sans">
     <!-- Mobile Hamburger Menu Button -->
-    <button id="menu-toggle-btn" class="menu-toggle-btn" aria-label="Toggle simulation options" aria-expanded="false" aria-controls="control-panel">
-        <span class="hamburger-icon" aria-hidden="true">
-            <span class="hamburger-line"></span>
-            <span class="hamburger-line"></span>
-            <span class="hamburger-line"></span>
+    <button id="menu-toggle-btn" class="flex md:hidden fixed top-4 left-4 z-50 w-11 h-11 rounded-xl bg-panel/75 backdrop-blur-md border border-panel-border text-text-primary cursor-pointer items-center justify-center p-0 shadow-[0_4px_20px_rgba(0,0,0,0.4)] transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:shadow-[0_6px_24px_rgba(0,0,0,0.5),0_0_15px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" aria-label="Toggle simulation options" aria-expanded="false" aria-controls="control-panel">
+        <span class="flex flex-col justify-center items-center gap-[5px] w-5 h-5" aria-hidden="true">
+            <span class="block w-[18px] h-0.5 bg-text-primary rounded-sm transition-all duration-300"></span>
+            <span class="block w-[18px] h-0.5 bg-text-primary rounded-sm transition-all duration-300"></span>
+            <span class="block w-[18px] h-0.5 bg-text-primary rounded-sm transition-all duration-300"></span>
         </span>
     </button>
 
     <!-- Mobile Menu Backdrop -->
-    <div id="menu-backdrop" class="menu-backdrop" aria-hidden="true"></div>
+    <div id="menu-backdrop" class="block md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity duration-300"></div>
 
-    <!-- [2.1 / 5.3] Fully Expanded Control Panel / Sidebar -->
-    <div id="control-panel">
-        <div class="sidebar-header">
-            <span class="sidebar-title">Simulation Controls</span>
-            <button id="menu-close-btn" class="menu-close-btn" aria-label="Close menu">✕</button>
+    <!-- Sidebar / Control Panel: docked flush left on desktop, slide-out drawer on mobile -->
+    <aside id="control-panel" class="fixed inset-y-0 left-0 w-80 z-40 bg-panel backdrop-blur-lg border-r border-panel-border overflow-y-auto flex flex-col gap-3.5 p-4 md:px-5 md:py-4 shadow-[0_20px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.1)] hover:border-white/15 hover:shadow-[0_25px_60px_rgba(0,0,0,0.7),0_0_30px_var(--color-accent-glow)]" aria-label="Simulation options">
+        <div class="flex items-center justify-between pb-0.5">
+            <span class="text-[11px] font-bold tracking-[2px] uppercase text-text-secondary">Simulation Controls</span>
+            <button id="menu-close-btn" class="flex md:hidden w-[30px] h-[30px] rounded-lg bg-white/5 border border-panel-border text-text-secondary text-sm cursor-pointer items-center justify-center transition-all duration-200 hover:bg-white/15 hover:text-text-primary hover:border-accent" aria-label="Close menu">✕</button>
         </div>
-        <section id="message-section" class="control-section" aria-labelledby="message-heading">
-            <h2 id="message-heading">MESSAGE</h2>
-            <div class="message-options" role="tablist" aria-label="Message type">
-                <button type="button" class="message-option active" data-message-mode="text" role="tab"
-                    aria-selected="true" aria-controls="text-message-mode">Text</button>
-                <button type="button" class="message-option" data-message-mode="image" role="tab"
-                    aria-selected="false" aria-controls="image-message-mode">Image</button>
+
+        <section id="message-section" class="flex flex-col gap-2.5" aria-labelledby="message-heading">
+            <h2 id="message-heading" class="m-0 text-text-primary text-[11px] font-semibold tracking-[1.8px]">MESSAGE</h2>
+            <div class="flex gap-1.5" role="tablist" aria-label="Message type">
+                <button type="button" class="message-option active flex-1 border border-white/10 rounded-lg bg-white/[0.03] text-text-secondary px-2.5 py-2 text-xs cursor-pointer transition-all duration-200 hover:border-accent hover:text-text-primary hover:bg-accent/10 is-active:border-accent is-active:bg-accent is-active:text-white is-active:shadow-[0_0_14px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-message-mode="text" role="tab" aria-selected="true" aria-controls="text-message-mode">Text</button>
+                <button type="button" class="message-option flex-1 border border-white/10 rounded-lg bg-white/[0.03] text-text-secondary px-2.5 py-2 text-xs cursor-pointer transition-all duration-200 hover:border-accent hover:text-text-primary hover:bg-accent/10 is-active:border-accent is-active:bg-accent is-active:text-white is-active:shadow-[0_0_14px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-message-mode="image" role="tab" aria-selected="false" aria-controls="image-message-mode">Image</button>
             </div>
 
-            <div id="text-message-mode" class="message-mode" role="tabpanel">
-                <label for="text-input">Text</label>
-                <div class="input-wrapper">
-                    <input type="text" id="text-input" value="Bring your message!" maxlength="25" autocomplete="off">
-                    <span id="char-counter">0/25</span>
+            <div id="text-message-mode" class="flex flex-col gap-1.5" role="tabpanel">
+                <label for="text-input" class="text-[11px] font-semibold text-text-secondary uppercase tracking-[1.5px]">Text</label>
+                <div class="relative flex items-center">
+                    <input type="text" id="text-input" value="Bring your message!" maxlength="25" autocomplete="off" class="w-full bg-white/5 border border-panel-border rounded-[10px] text-text-primary pl-3.5 pr-12 py-2.5 text-sm outline-none transition-all duration-300 focus:border-accent focus:bg-white/10 focus:shadow-[0_0_12px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
+                    <span id="char-counter" class="absolute right-3 text-[11px] text-text-secondary font-mono pointer-events-none transition-colors duration-300 is-warning:text-amber-500 is-danger:text-danger is-danger:font-semibold">0/25</span>
                 </div>
 
-                <div id="emoji-row" aria-label="Emoji message options">
-                    <span class="presets-label">Emojis:</span>
-                    <button class="emoji-chip" data-emoji="😀" title="😀 Grinning Face">😀</button>
-                    <button class="emoji-chip" data-emoji="😂" title="😂 Tears of Joy">😂</button>
-                    <button class="emoji-chip" data-emoji="😍" title="😍 Heart Eyes">😍</button>
-                    <button class="emoji-chip" data-emoji="🥰" title="🥰 Smiling with Hearts">🥰</button>
-                    <button class="emoji-chip" data-emoji="😎" title="😎 Cool Shades">😎</button>
-                    <button class="emoji-chip" data-emoji="🤔" title="🤔 Thinking Face">🤔</button>
-                    <button class="emoji-chip" data-emoji="😭" title="😭 Loudly Crying">😭</button>
-                    <button class="emoji-chip" data-emoji="😡" title="😡 Angry Face">😡</button>
-                    <button class="emoji-chip" data-emoji="😱" title="😱 Screaming">😱</button>
-                    <button class="emoji-chip" data-emoji="🥳" title="🥳 Partying">🥳</button>
-                    <button class="emoji-chip" data-emoji="👍" title="👍 Thumbs Up">👍</button>
-                    <button class="emoji-chip" data-emoji="👎" title="👎 Thumbs Down">👎</button>
-                    <button class="emoji-chip" data-emoji="👏" title="👏 Clapping">👏</button>
-                    <button class="emoji-chip" data-emoji="🙏" title="🙏 Folded Hands">🙏</button>
-                    <button class="emoji-chip" data-emoji="👌" title="👌 OK Hand">👌</button>
-                    <button class="emoji-chip" data-emoji="💪" title="💪 Flexed Biceps">💪</button>
-                    <button class="emoji-chip" data-emoji="❤️" title="❤️ Red Heart">❤️</button>
-                    <button class="emoji-chip" data-emoji="🔥" title="🔥 Fire">🔥</button>
-                    <button class="emoji-chip" data-emoji="✨" title="✨ Sparkles">✨</button>
-                    <button class="emoji-chip" data-emoji="🎉" title="🎉 Party Popper">🎉</button>
+                <div id="emoji-row" class="flex items-center gap-2 border-t border-white/5 pt-3 flex-nowrap overflow-x-auto pb-1 md:flex-wrap md:overflow-x-visible md:pb-0" aria-label="Emoji message options">
+                    <span class="text-[10px] font-semibold text-text-secondary uppercase tracking-[1px]">Emojis:</span>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😀" title="😀 Grinning Face">😀</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😂" title="😂 Tears of Joy">😂</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😍" title="😍 Heart Eyes">😍</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="🥰" title="🥰 Smiling with Hearts">🥰</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😎" title="😎 Cool Shades">😎</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="🤔" title="🤔 Thinking Face">🤔</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😭" title="😭 Loudly Crying">😭</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😡" title="😡 Angry Face">😡</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="😱" title="😱 Screaming">😱</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="🥳" title="🥳 Partying">🥳</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="👍" title="👍 Thumbs Up">👍</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="👎" title="👎 Thumbs Down">👎</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="👏" title="👏 Clapping">👏</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="🙏" title="🙏 Folded Hands">🙏</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="👌" title="👌 OK Hand">👌</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="💪" title="💪 Flexed Biceps">💪</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="❤️" title="❤️ Red Heart">❤️</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="🔥" title="🔥 Fire">🔥</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="✨" title="✨ Sparkles">✨</button>
+                    <button class="emoji-chip w-[42px] h-[42px] md:w-10 md:h-10 shrink-0 rounded-xl bg-white/[0.03] border border-white/5 text-[22px] flex items-center justify-center p-0 cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent hover:scale-105 active:scale-95 is-active:bg-white is-active:border-white is-active:shadow-[0_0_15px_rgba(255,255,255,0.45)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-emoji="🎉" title="🎉 Party Popper">🎉</button>
                 </div>
             </div>
 
-            <div id="image-message-mode" class="message-mode" role="tabpanel" hidden>
-                <label for="image-input">Image</label>
-                <div class="image-upload-row">
-                    <label class="image-upload-button" for="image-input">Choose File</label>
-                    <input type="file" id="image-input" accept="image/*">
-                    <span id="image-name" class="field-hint">No file chosen</span>
+            <div id="image-message-mode" class="flex flex-col gap-1.5" role="tabpanel" hidden>
+                <label for="image-input" class="text-[11px] font-semibold text-text-secondary uppercase tracking-[1.5px]">Image</label>
+                <div class="flex items-center gap-2 min-w-0">
+                    <label class="image-upload-button shrink-0 border border-panel-border rounded-lg px-2.5 py-2 bg-white/[0.06] text-text-primary text-xs cursor-pointer hover:border-accent hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" for="image-input">Choose File</label>
+                    <input type="file" id="image-input" accept="image/*" class="sr-only">
+                    <span id="image-name" class="flex-1 min-w-0 overflow-hidden text-text-secondary text-[11px] truncate">No file chosen</span>
                 </div>
             </div>
         </section>
 
-        <div id="appearance-row" class="control-row">
-            <div class="control-group">
-                <label for="theme-select">Theme</label>
-                <select id="theme-select">
+        <div id="appearance-row" class="flex flex-col gap-2.5">
+            <div class="flex flex-col gap-1.5">
+                <label for="theme-select" class="text-[11px] font-semibold text-text-secondary uppercase tracking-[1.5px]">Theme</label>
+                <select id="theme-select" class="w-full bg-white/5 border border-panel-border rounded-[10px] text-text-primary px-3.5 py-2.5 text-sm outline-none cursor-pointer transition-all duration-300 focus:border-accent focus:bg-[rgba(15,15,30,0.95)] focus:shadow-[0_0_12px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
                     <option value="ember">Ember</option>
                     <option value="arctic">Arctic</option>
                     <option value="toxic">Toxic</option>
@@ -110,9 +109,9 @@
                 </select>
             </div>
 
-            <div class="control-group">
-                <label for="font-select">Font</label>
-                <select id="font-select">
+            <div class="flex flex-col gap-1.5">
+                <label for="font-select" class="text-[11px] font-semibold text-text-secondary uppercase tracking-[1.5px]">Font</label>
+                <select id="font-select" class="w-full bg-white/5 border border-panel-border rounded-[10px] text-text-primary px-3.5 py-2.5 text-sm outline-none cursor-pointer transition-all duration-300 focus:border-accent focus:bg-[rgba(15,15,30,0.95)] focus:shadow-[0_0_12px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
                     <option value="Outfit">Outfit</option>
                     <option value="Fira Code">Fira Code</option>
                     <option value="Pacifico">Pacifico</option>
@@ -121,30 +120,26 @@
             </div>
         </div>
 
-        <section id="animations-section" class="control-section" aria-labelledby="animations-heading">
-            <h2 id="animations-heading">ANIMATIONS</h2>
-            <div id="presets-row">
-                <button class="preset-chip" data-text="KINETIC"><span class="chip-icon">⚡</span> Kinetic</button>
-                <button class="preset-chip" data-text="TORNADO"><span class="chip-icon">🌪️</span> Tornado</button>
-                <button class="preset-chip" data-text="BREEZE"><span class="chip-icon">💨</span> Breeze</button>
-                <button class="preset-chip" data-text="EXPLODE"><span class="chip-icon">💥</span> Explode</button>
+        <section id="animations-section" class="flex flex-col gap-2.5 border-t border-white/5 pt-3.5" aria-labelledby="animations-heading">
+            <h2 id="animations-heading" class="m-0 text-text-primary text-[11px] font-semibold tracking-[1.8px]">ANIMATIONS</h2>
+            <div id="presets-row" class="grid grid-cols-2 gap-2 w-full">
+                <button class="preset-chip bg-white/[0.03] border border-white/[0.06] rounded-[10px] text-text-secondary px-2.5 py-2 text-xs font-medium cursor-pointer flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-accent/15 hover:border-accent hover:text-text-primary hover:-translate-y-px active:translate-y-0 is-active:bg-accent is-active:border-accent is-active:text-white is-active:font-semibold is-active:shadow-[0_0_14px_var(--color-accent-glow)] is-disabled:opacity-45 is-disabled:cursor-not-allowed is-disabled:pointer-events-none is-disabled:border-white/5 is-disabled:shadow-none is-active:is-disabled:opacity-85 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-text="KINETIC"><span class="text-[13px] leading-none">⚡</span> Kinetic</button>
+                <button class="preset-chip bg-white/[0.03] border border-white/[0.06] rounded-[10px] text-text-secondary px-2.5 py-2 text-xs font-medium cursor-pointer flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-accent/15 hover:border-accent hover:text-text-primary hover:-translate-y-px active:translate-y-0 is-active:bg-accent is-active:border-accent is-active:text-white is-active:font-semibold is-active:shadow-[0_0_14px_var(--color-accent-glow)] is-disabled:opacity-45 is-disabled:cursor-not-allowed is-disabled:pointer-events-none is-disabled:border-white/5 is-disabled:shadow-none is-active:is-disabled:opacity-85 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-text="TORNADO"><span class="text-[13px] leading-none">🌪️</span> Tornado</button>
+                <button class="preset-chip bg-white/[0.03] border border-white/[0.06] rounded-[10px] text-text-secondary px-2.5 py-2 text-xs font-medium cursor-pointer flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-accent/15 hover:border-accent hover:text-text-primary hover:-translate-y-px active:translate-y-0 is-active:bg-accent is-active:border-accent is-active:text-white is-active:font-semibold is-active:shadow-[0_0_14px_var(--color-accent-glow)] is-disabled:opacity-45 is-disabled:cursor-not-allowed is-disabled:pointer-events-none is-disabled:border-white/5 is-disabled:shadow-none is-active:is-disabled:opacity-85 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-text="BREEZE"><span class="text-[13px] leading-none">💨</span> Breeze</button>
+                <button class="preset-chip bg-white/[0.03] border border-white/[0.06] rounded-[10px] text-text-secondary px-2.5 py-2 text-xs font-medium cursor-pointer flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-accent/15 hover:border-accent hover:text-text-primary hover:-translate-y-px active:translate-y-0 is-active:bg-accent is-active:border-accent is-active:text-white is-active:font-semibold is-active:shadow-[0_0_14px_var(--color-accent-glow)] is-disabled:opacity-45 is-disabled:cursor-not-allowed is-disabled:pointer-events-none is-disabled:border-white/5 is-disabled:shadow-none is-active:is-disabled:opacity-85 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" data-text="EXPLODE"><span class="text-[13px] leading-none">💥</span> Explode</button>
             </div>
         </section>
 
-        <div id="actions-row">
-            <button id="capture-btn" title="Capture Screenshot">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    style="margin-right: 3px;">
+        <div id="actions-row" class="flex gap-2 items-center mt-1">
+            <button id="capture-btn" class="flex-1 bg-white/[0.06] border border-panel-border rounded-[10px] text-text-primary px-3.5 py-2.5 text-[13px] font-medium cursor-pointer flex items-center justify-center gap-1.5 h-10 transition-all duration-200 hover:bg-text-primary hover:text-bg hover:-translate-y-0.5 hover:shadow-[0_4px_15px_rgba(255,255,255,0.2)] active:translate-y-0 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" title="Capture Screenshot">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 3px;">
                     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
                     <circle cx="12" cy="13" r="4"></circle>
                 </svg>
                 Capture
             </button>
-            <button id="share-btn" title="Share Sculpture Link">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    style="margin-right: 3px;">
+            <button id="share-btn" class="flex-1 bg-white/[0.06] border border-panel-border rounded-[10px] text-text-primary px-3.5 py-2.5 text-[13px] font-medium cursor-pointer flex items-center justify-center gap-1.5 h-10 transition-all duration-200 hover:bg-text-primary hover:text-bg hover:-translate-y-0.5 hover:shadow-[0_4px_15px_rgba(255,255,255,0.2)] active:translate-y-0 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" title="Share Sculpture Link">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 3px;">
                     <circle cx="18" cy="5" r="3"></circle>
                     <circle cx="6" cy="12" r="3"></circle>
                     <circle cx="18" cy="19" r="3"></circle>
@@ -153,25 +148,35 @@
                 </svg>
                 Share
             </button>
-            <button id="audio-btn" class="icon-action-btn" title="Toggle Sound (Mute/Unmute)" aria-pressed="true">
+            <button id="audio-btn" class="w-10 shrink-0 bg-white/[0.06] border border-panel-border rounded-[10px] text-text-primary p-0 flex items-center justify-center h-10 text-[15px] cursor-pointer transition-all duration-200 hover:bg-text-primary hover:text-bg hover:-translate-y-0.5 hover:shadow-[0_4px_15px_rgba(255,255,255,0.2)] active:translate-y-0 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" title="Toggle Sound (Mute/Unmute)" aria-pressed="true">
                 <span id="audio-icon">🔊</span>
             </button>
         </div>
-    </div>
 
-    <!-- [4.3] Empty text Toast alert element -->
-    <div id="toast"></div>
+        <!-- INSTRUCTIONS (moved from the bottom stage overlay) -->
+        <section id="instructions-section" class="flex flex-col gap-2 border-t border-white/5 pt-3.5 mt-auto" aria-labelledby="instructions-heading">
+            <h2 id="instructions-heading" class="m-0 text-text-primary text-[11px] font-semibold tracking-[1.8px]">INSTRUCTIONS</h2>
+            <dl class="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-text-secondary">
+                <dt class="font-semibold text-text-primary">Rotate</dt>
+                <dd class="m-0">Arrows / 2-finger slide</dd>
+                <dt class="font-semibold text-text-primary">Zoom</dt>
+                <dd class="m-0">+/- / Pinch</dd>
+                <dt class="font-semibold text-text-primary">Explode</dt>
+                <dd class="m-0">Dbl-click / Space</dd>
+            </dl>
+        </section>
+    </aside>
 
-    <!-- [3.2] Screen Reader Live Announcements -->
+    <!-- Empty text Toast alert element -->
+    <div id="toast" class="absolute top-24 left-1/2 -translate-x-1/2 -translate-y-2.5 bg-danger text-white px-5 py-2.5 rounded-lg text-[13px] font-medium z-[100] shadow-[0_8px_20px_var(--color-danger-glow)] pointer-events-none opacity-0 transition-all duration-300 is-show:opacity-100 is-show:translate-y-0"></div>
+
+    <!-- Screen Reader Live Announcements -->
     <div id="sr-announce" class="sr-only" aria-live="polite"></div>
 
-    <!-- Stage: canvas container that excludes the menu area, so the sculpture
-         stays centered in the space not occupied by the control panel. -->
-    <div id="stage">
+    <!-- Stage: canvas container that fills the remainder of the screen after the sidebar -->
+    <div id="stage" class="absolute inset-0 md:left-80 z-10">
         <!-- Procedural impact flash overlay for explosions -->
-        <div id="flash" aria-hidden="true"></div>
-
-        <div id="overlay">Arrows / 2-Finger Slide to rotate • +/- / Pinch to zoom • Dbl-click or Space to Explode</div>
+        <div id="flash" class="absolute inset-0 z-[2] pointer-events-none opacity-0 transition-opacity duration-100 ease-out is-active:opacity-100 [background:radial-gradient(circle_at_center,rgba(255,255,255,0.9),rgba(255,255,255,0)_70%)]" aria-hidden="true"></div>
     </div>
 
     <script type="module" src="./js/main.js"></script>
