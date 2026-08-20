@@ -133,44 +133,85 @@ export function evaluateTornadoParticle(i, hx, hy, hz, u, fx, fz, cd, elapsed, p
     }
 }
 
-function computeBreezePlume(tWind, curElapsed, lambda, gX, gY, gZ, gx, intensity, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out) {
+function computeBreezePlume(tWind, curElapsed, lambda, gX, gY, gZ, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out) {
+    // 1. Progressive Gust Front with randomized localized wave arrival
+    const upwindPos = (gX * gx) + 25.0;
+    const randOffset = (((i * 53.17) % 100.0) / 100.0) * 0.30;
+    const gustDelay = Math.min(0.75, Math.max(0.0, upwindPos * 0.015 + randOffset));
+    const localT = Math.max(0.0, tWind - gustDelay);
+    const pLocal = Math.min(1.0, localT / (t2 - gustDelay + 1e-4));
+
+    if (localT <= 0.0) {
+        if (out) { out.x = gX; out.y = gY; out.z = gZ; return out; }
+        return { x: gX, y: gY, z: gZ };
+    }
+
+    // ── Option 1: 3D Spiral Ribbons & Braided Filaments ──
+    // 3 distinct interwoven silk ribbons (phases 0, 2pi/3, 4pi/3)
+    const ribbonId = i % 3.0;
+    const ribbonPhase = ribbonId * 2.094395; // 2*PI/3
+    const braidWavelength = 0.15;
+    const braidSpeed = 2.8;
+    const braidAngle = braidWavelength * (gX * gx) - braidSpeed * curElapsed + ribbonPhase;
+    const braidRadius = (1.8 + 3.8 * buoyancy) * Math.min(1.0, localT / 0.8) * intensity;
+    const braidY = braidRadius * Math.sin(braidAngle);
+    const braidZ = braidRadius * Math.cos(braidAngle);
+    const braidX = gx * (braidRadius * 0.55 * Math.sin(braidAngle * 0.5));
+
+    // ── Option 6: Floating Leaf Flutter & Pendulum Gliding ──
+    // Pendulum rocking phase (simulates leaves/petals rocking back & forth as they catch air pockets)
+    const leafRockFreq = 3.6 + (((i * 41.73) % 100.0) / 100.0) * 2.0;
+    const leafPhase = (((i * 67.89) % 100.0) / 100.0) * 6.28318;
+    const pendulumAngle = leafRockFreq * curElapsed + leafPhase;
+
+    // Rocking side-to-side cross-glide and buoyant apex lift
+    const leafGlideX = gx * (Math.sin(pendulumAngle) * (0.80 + 1.10 * windSpeedMult)) * intensity;
+    const leafGlideY = Math.abs(Math.cos(pendulumAngle)) * (0.95 + 1.45 * buoyancy) * intensity;
+    const leafGlideZ = Math.sin(pendulumAngle * 0.75 + leafPhase) * (1.30 + 1.80 * windSpeedMult) * intensity;
+
+    // High-frequency fluttering edge wobble
+    const leafWobble = Math.sin(9.5 * curElapsed + i * 0.35) * 0.40 * intensity * Math.min(1.0, localT);
+
+    // ── Swirl / Whirlwind Vortex Dynamics (Randomized from 0.0 to 1.4+) ──
+    const swirlSign = (((i * 29.17) % 10.0) > 5.0) ? 1.0 : -1.0;
+    const swirlAngle = 0.12 * (gX * gx) - 3.8 * curElapsed * swirlSign + (((i * 31.41) % 100.0) / 100.0) * 6.28318;
+    const swirlEnvelope = Math.sin(Math.PI * pLocal);
+    const swirlRadius = (3.2 + 6.0 * buoyancy) * (swirl || 0.0) * intensity * swirlEnvelope;
+    const swirlY = swirlRadius * Math.sin(swirlAngle);
+    const swirlZ = swirlRadius * Math.cos(swirlAngle);
+    const swirlX = gx * (swirlRadius * 0.35 * Math.cos(swirlAngle * 2.0));
+
     if (lambda > 0.82) {
-        // Ground Layer Skitter: heavy particles tumble and skip along the floor surface
-        const groundTumble = (tWind * 16.0 * windSpeedMult + 1.2 * Math.sin(3.5 * curElapsed + i * 0.1)) * intensity;
-        const rx = gX + gx * groundTumble;
-        const ry = gY + 0.35 * Math.abs(Math.sin(7.0 * curElapsed + i * 0.25)) * intensity;
-        const rz = gZ + 1.2 * Math.sin(2.5 * curElapsed + i * 0.15) * intensity;
+        // ── Strata C: Ground Skittering Leaves (Tumbling along floor) ──
+        const groundSpeed = (3.2 + 6.0 * windSpeedMult) * intensity;
+        const groundDist = groundSpeed * (localT * 0.85 + 0.08 * localT * localT);
+        const groundSkip = (0.35 * Math.abs(Math.sin(pendulumAngle)) + 0.10 * Math.sin(curElapsed * 10.0 + i)) * Math.min(1.0, localT);
+        const groundZDrift = (0.75 * Math.sin(pendulumAngle * 0.6) + leafWobble + swirlZ * 0.25) * Math.min(1.0, localT);
+
+        const rx = gX + gx * groundDist + leafGlideX * 0.4 + swirlX * 0.25;
+        const ry = Math.max(gY, gY + groundSkip);
+        const rz = gZ + groundZDrift;
         if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
         return { x: rx, y: ry, z: rz };
     } else {
-        // Fluid Dynamics Aerodynamic Plume with Kelvin-Helmholtz Vortices & Velocity Shear
-        const p = tWind / t2;
-        const liftProg = Math.min(1.0, Math.max(0.0, (p - liftStart) / (1.0 - liftStart + 1e-4)));
+        // ── Strata A & B: Airborne Braided Ribbon Streams + Floating Leaf Gliding + Swirl Vortex ──
+        const indLiftStart = liftStart * 0.50;
+        const liftProg = Math.min(1.0, Math.max(0.0, (pLocal - indLiftStart) / (1.0 - indLiftStart + 1e-4)));
         const eLift = liftProg * liftProg * (3.0 - 2.0 * liftProg);
 
-        // 1. Boundary-Layer Velocity Shear (particles higher up travel much faster)
-        const aloftSpeed = 24.0 * windSpeedMult * (0.40 + 0.60 * buoyancy) * intensity;
-        const xStreamline = gx * (aloftSpeed * tWind);
+        // Dynamic aerodynamic forward drift along streamlines
+        const randSpeedVariation = (((i * 83.11) % 100.0) / 100.0) * 2.4 - 1.2;
+        const baseSpeed = Math.max(2.4, 4.2 + 8.5 * windSpeedMult + 3.8 * buoyancy + randSpeedVariation);
+        const xDispersal = (localT * baseSpeed + 0.45 * localT * localT * (0.4 + 0.6 * buoyancy)) * intensity;
 
-        // 2. Rolling Kelvin-Helmholtz Vortices (transverse rolling eddies)
-        const vortexPhase = 0.14 * (gX * gx) - 2.8 * curElapsed + i * 0.08;
-        const vortexRadius = 4.0 * buoyancy * Math.min(1.0, tWind / 1.2) * intensity;
-        const rollY = vortexRadius * Math.sin(vortexPhase);
-        const rollX = gx * (vortexRadius * Math.cos(vortexPhase));
+        // Harmonic plume altitude
+        const randHeight = (((i * 93.41) % 100.0) / 100.0) * 2.8;
+        const baseLiftHeight = (3.0 + 7.5 * buoyancy + randHeight) * intensity;
+        const totalLift = Math.max(0.0, baseLiftHeight + braidY + leafGlideY + leafWobble);
 
-        // 3. Multi-scale Turbulent Wisps & Fluid Streamline Flutter
-        const wisp1 = (4.5 * Math.sin(0.15 * gX - 2.2 * curElapsed + seedZ * 0.05) * Math.cos(0.12 * gZ)) * intensity;
-        const wisp2 = (3.0 * Math.sin(0.32 * gX + 3.8 * curElapsed + i * 0.15) * Math.sin(0.25 * (gY + 11.0))) * intensity;
-        const flutterZ = ((5.5 * Math.sin(0.25 * gX - 4.2 * curElapsed + i * 0.18) + seedZ * 0.25) * (1.0 + tWind * 0.25)) * intensity;
-        const flutterY = (2.0 * Math.cos(0.28 * gX + 3.4 * curElapsed + i * 0.12)) * intensity;
-
-        // 4. Directional Buoyant Plume Lift (strictly positive above floor)
-        const baseLift = (7.0 + 22.0 * buoyancy) * intensity;
-        const totalLift = Math.max(0.0, baseLift + wisp1 + wisp2 + rollY + flutterY);
-
-        const rx = gX + xStreamline + rollX + gx * (wisp1 * 0.6);
-        const ry = gY + eLift * totalLift;
-        const rz = gZ + eLift * flutterZ;
+        const rx = gX + gx * xDispersal + braidX + leafGlideX + eLift * swirlX;
+        const ry = Math.max(gY, gY + eLift * (totalLift + swirlY));
+        const rz = gZ + eLift * (braidZ + leafGlideZ + leafWobble + swirlZ);
 
         if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
         return { x: rx, y: ry, z: rz };
@@ -181,6 +222,7 @@ export function evaluateBreezeParticle(i, hx, hy, hz, cd, elapsed, breezeConfig,
     const b = breezeConfig || {};
     const gx = (b.blowDir != null) ? b.blowDir : 1.0;
     const intensity = (b.intensity != null) ? b.intensity : 1.0;
+    const swirl = (b.swirl != null) ? b.swirl : 0.0;
 
     const t1 = 1.0;        // Phase 1: Straight Ground Fall (0 -> 1.0s)
     const tPause = 2.0;    // Ground Rest: 2 seconds on floor (1.0 -> 3.0s)
@@ -227,13 +269,13 @@ export function evaluateBreezeParticle(i, hx, hy, hz, cd, elapsed, breezeConfig,
     } else if (elapsed < t1 + tPause + t2) {
         // ── 2) Phase 2: Forward Fuzzy Breeze Lift ──
         const tWind = elapsed - (t1 + tPause);
-        return computeBreezePlume(tWind, elapsed, lambda, gX, gY, gZ, gx, intensity, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out);
+        return computeBreezePlume(tWind, elapsed, lambda, gX, gY, gZ, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out);
     } else if (elapsed < t1 + tPause + t2 + t3) {
         // ── 3) Phase 3: Exact Reverse Breeze Flow back to Ground Floor ──
         const p3 = (elapsed - (t1 + tPause + t2)) / t3;
         const smoothP3 = p3 * p3 * (3.0 - 2.0 * p3);
         const tWindRev = t2 * (1.0 - smoothP3);
-        return computeBreezePlume(tWindRev, elapsed, lambda, gX, gY, gZ, gx, intensity, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out);
+        return computeBreezePlume(tWindRev, elapsed, lambda, gX, gY, gZ, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out);
     } else {
         // ── 4) Phase 4: Reverse Drop (Straight Elevation to Rest) ──
         const p4 = Math.min(1.0, (elapsed - (t1 + tPause + t2 + t3)) / t4);

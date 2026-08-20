@@ -230,11 +230,11 @@ const CONFIG = {
             liftDuration: 3.6,
             settleDuration: 3.6,
             contractionDuration: 1.6,
-            explosionMaxDistMultiplier: 38.0,
-            motionStyle: 2, // 4-phase breeze: Straight Fall (1.0s) -> 2s Ground Rest (1.0-3.0s) -> Forward Breeze (3.0-6.6s) -> Reverse Breeze to Floor (6.6-10.2s) -> Reverse Drop Elevation Home (10.2-11.8s)
+            explosionMaxDistMultiplier: 28.0,
+            motionStyle: 2, // 4-phase breeze: Straight Fall (1.0s) -> 2s Ground Rest (1.0-3.0s) -> Braided Leaf Breeze (3.0-6.6s) -> Reverse Flow to Floor (6.6-10.2s) -> Reverse Drop Elevation Home (10.2-11.8s)
             gustCoherence: 0.94,
-            windSpeed: 36.0,
-            trailStrength: 0.65,
+            windSpeed: 24.0,
+            trailStrength: 0.60,
             heat: {
                 cold: [0.15, 0.35, 0.65],  // Oceanic breeze blue
                 warm: [0.85, 0.45, 0.35],  // Warm terracotta ground scatter (Image 1 & 2)
@@ -366,6 +366,7 @@ uniform float uFunnelWaistT;
 uniform float uFunnelCrownExp;
 uniform float uBreezeBlowDir;
 uniform float uBreezeIntensity;
+uniform float uBreezeSwirl;
 uniform vec3 uMouseWorld;
 uniform float uMousePushDistance;
 uniform float uMouseActive;
@@ -477,43 +478,78 @@ vec3 evalTornadoGPU(float i, vec3 home, float u, vec3 seed, float cd, float elap
     }
 }
 
-vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPos, float gx, float intensity, float cd, float windSpeedMult, float buoyancy, float liftStart, float seedZ, float t2, float i) {
+vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPos, float gx, float intensity, float swirl, float cd, float windSpeedMult, float buoyancy, float liftStart, float seedZ, float t2, float i) {
+    float upwindPos = (gPos.x * gx) + 25.0;
+    float randOffset = (mod(i * 53.17, 100.0) / 100.0) * 0.30;
+    float gustDelay = min(0.75, max(0.0, upwindPos * 0.015 + randOffset));
+    float localT = max(0.0, tWind - gustDelay);
+    float pLocal = min(1.0, localT / (t2 - gustDelay + 1e-4));
+
+    if (localT <= 0.0) {
+        return gPos;
+    }
+
+    // ── Option 1: 3D Spiral Ribbons & Braided Filaments ──
+    float ribbonId = mod(i, 3.0);
+    float ribbonPhase = ribbonId * 2.094395; // 2*PI/3
+    float braidWavelength = 0.15;
+    float braidSpeed = 2.8;
+    float braidAngle = braidWavelength * (gPos.x * gx) - braidSpeed * curElapsed + ribbonPhase;
+    float braidRadius = (1.8 + 3.8 * buoyancy) * min(1.0, localT / 0.8) * intensity;
+    float braidY = braidRadius * sin(braidAngle);
+    float braidZ = braidRadius * cos(braidAngle);
+    float braidX = gx * (braidRadius * 0.55 * sin(braidAngle * 0.5));
+
+    // ── Option 6: Floating Leaf Flutter & Pendulum Gliding ──
+    float leafRockFreq = 3.6 + (mod(i * 41.73, 100.0) / 100.0) * 2.0;
+    float leafPhase = (mod(i * 67.89, 100.0) / 100.0) * 6.28318;
+    float pendulumAngle = leafRockFreq * curElapsed + leafPhase;
+
+    float leafGlideX = gx * (sin(pendulumAngle) * (0.80 + 1.10 * windSpeedMult)) * intensity;
+    float leafGlideY = abs(cos(pendulumAngle)) * (0.95 + 1.45 * buoyancy) * intensity;
+    float leafGlideZ = sin(pendulumAngle * 0.75 + leafPhase) * (1.30 + 1.80 * windSpeedMult) * intensity;
+
+    float leafWobble = sin(9.5 * curElapsed + i * 0.35) * 0.40 * intensity * min(1.0, localT);
+
+    // ── Swirl / Whirlwind Vortex Dynamics (Randomized from 0.0 to 1.4+) ──
+    float swirlSign = (mod(i * 29.17, 10.0) > 5.0) ? 1.0 : -1.0;
+    float swirlAngle = 0.12 * (gPos.x * gx) - 3.8 * curElapsed * swirlSign + (mod(i * 31.41, 100.0) / 100.0) * 6.28318;
+    float swirlEnvelope = sin(3.14159265 * pLocal);
+    float swirlRadius = (3.2 + 6.0 * buoyancy) * swirl * intensity * swirlEnvelope;
+    float swirlY = swirlRadius * sin(swirlAngle);
+    float swirlZ = swirlRadius * cos(swirlAngle);
+    float swirlX = gx * (swirlRadius * 0.35 * cos(swirlAngle * 2.0));
+
     if (lambda > 0.82) {
-        float groundTumble = (tWind * 16.0 * windSpeedMult + 1.2 * sin(3.5 * curElapsed + i * 0.1)) * intensity;
-        float rx = gPos.x + gx * groundTumble;
-        float ry = gPos.y + 0.35 * abs(sin(7.0 * curElapsed + i * 0.25)) * intensity;
-        float rz = gPos.z + 1.2 * sin(2.5 * curElapsed + i * 0.15) * intensity;
-        return vec3(rx, ry, rz);
+        // ── Strata C: Ground Skittering Leaves (Tumbling along floor) ──
+        float groundSpeed = (3.2 + 6.0 * windSpeedMult) * intensity;
+        float groundDist = groundSpeed * (localT * 0.85 + 0.08 * localT * localT);
+        float groundSkip = (0.35 * abs(sin(pendulumAngle)) + 0.10 * sin(curElapsed * 10.0 + i)) * min(1.0, localT);
+        float groundZDrift = (0.75 * sin(pendulumAngle * 0.6) + leafWobble + swirlZ * 0.25) * min(1.0, localT);
+        return vec3(gPos.x + gx * groundDist + leafGlideX * 0.4 + swirlX * 0.25, max(gPos.y, gPos.y + groundSkip), gPos.z + groundZDrift);
     } else {
-        float p = tWind / t2;
-        float liftProg = min(1.0, max(0.0, (p - liftStart) / (1.0 - liftStart + 1e-4)));
+        // ── Strata A & B: Airborne Braided Ribbon Streams + Floating Leaf Gliding + Swirl Vortex ──
+        float indLiftStart = liftStart * 0.50;
+        float liftProg = min(1.0, max(0.0, (pLocal - indLiftStart) / (1.0 - indLiftStart + 1e-4)));
         float eLift = liftProg * liftProg * (3.0 - 2.0 * liftProg);
 
-        float aloftSpeed = 24.0 * windSpeedMult * (0.40 + 0.60 * buoyancy) * intensity;
-        float xStreamline = gx * (aloftSpeed * tWind);
+        float randSpeedVariation = (mod(i * 83.11, 100.0) / 100.0) * 2.4 - 1.2;
+        float baseSpeed = max(2.4, 4.2 + 8.5 * windSpeedMult + 3.8 * buoyancy + randSpeedVariation);
+        float xDispersal = (localT * baseSpeed + 0.45 * localT * localT * (0.4 + 0.6 * buoyancy)) * intensity;
 
-        float vortexPhase = 0.14 * (gPos.x * gx) - 2.8 * curElapsed + i * 0.08;
-        float vortexRadius = 4.0 * buoyancy * min(1.0, tWind / 1.2) * intensity;
-        float rollY = vortexRadius * sin(vortexPhase);
-        float rollX = gx * (vortexRadius * cos(vortexPhase));
+        float randHeight = (mod(i * 93.41, 100.0) / 100.0) * 2.8;
+        float baseLiftHeight = (3.0 + 7.5 * buoyancy + randHeight) * intensity;
+        float totalLift = max(0.0, baseLiftHeight + braidY + leafGlideY + leafWobble);
 
-        float wisp1 = (4.5 * sin(0.15 * gPos.x - 2.2 * curElapsed + seedZ * 0.05) * cos(0.12 * gPos.z)) * intensity;
-        float wisp2 = (3.0 * sin(0.32 * gPos.x + 3.8 * curElapsed + i * 0.15) * sin(0.25 * (gPos.y + 11.0))) * intensity;
-        float flutterZ = ((5.5 * sin(0.25 * gPos.x - 4.2 * curElapsed + i * 0.18) + seedZ * 0.25) * (1.0 + tWind * 0.25)) * intensity;
-        float flutterY = (2.0 * cos(0.28 * gPos.x + 3.4 * curElapsed + i * 0.12)) * intensity;
-
-        float baseLift = (7.0 + 22.0 * buoyancy) * intensity;
-        float totalLift = max(0.0, baseLift + wisp1 + wisp2 + rollY + flutterY);
-
-        float rx = gPos.x + xStreamline + rollX + gx * (wisp1 * 0.6);
-        float ry = gPos.y + eLift * totalLift;
-        float rz = gPos.z + eLift * flutterZ;
+        float rx = gPos.x + gx * xDispersal + braidX + leafGlideX + eLift * swirlX;
+        float ry = max(gPos.y, gPos.y + eLift * (totalLift + swirlY));
+        float rz = gPos.z + eLift * (braidZ + leafGlideZ + leafWobble + swirlZ);
 
         return vec3(rx, ry, rz);
     }
 }
 
-vec3 evalBreezeGPU(float i, vec3 home, float cd, float elapsed, float gx, float intensity) {
+vec3 evalBreezeGPU(float i, vec3 home, float cd, float elapsed, float gx, float intensity, float swirl) {
     float t1 = 1.0;
     float tPause = 2.0;
     float t2 = 3.6;
@@ -544,12 +580,12 @@ vec3 evalBreezeGPU(float i, vec3 home, float cd, float elapsed, float gx, float 
         return gPos;
     } else if (elapsed < t1 + tPause + t2) {
         float tWind = elapsed - (t1 + tPause);
-        return computeBreezePlumeGPU(tWind, elapsed, lambda, gPos, gx, intensity, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i);
+        return computeBreezePlumeGPU(tWind, elapsed, lambda, gPos, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i);
     } else if (elapsed < t1 + tPause + t2 + t3) {
         float p3 = (elapsed - (t1 + tPause + t2)) / t3;
         float smoothP3 = p3 * p3 * (3.0 - 2.0 * p3);
         float tWindRev = t2 * (1.0 - smoothP3);
-        return computeBreezePlumeGPU(tWindRev, elapsed, lambda, gPos, gx, intensity, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i);
+        return computeBreezePlumeGPU(tWindRev, elapsed, lambda, gPos, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i);
     } else {
         float p4 = min(1.0, (elapsed - (t1 + tPause + t2 + t3)) / t4);
         float eRise = p4 * p4 * (3.0 - 2.0 * p4);
@@ -616,7 +652,7 @@ void main() {
             if (uMotionStyle == 1) {
                 livePos = evalTornadoGPU(aIndex, homePosition, funnelT, aSeed, aCustomDir, uExplosionElapsed, uSpinSpeed, uFunnelBottom, uFunnelHeight, uFunnelCrownRadius, uFunnelWaistRadius, uFunnelTailRadius, uFunnelWaistT, uFunnelCrownExp);
             } else if (uMotionStyle == 2) {
-                livePos = evalBreezeGPU(aIndex, homePosition, aCustomDir, uExplosionElapsed, uBreezeBlowDir, uBreezeIntensity);
+                livePos = evalBreezeGPU(aIndex, homePosition, aCustomDir, uExplosionElapsed, uBreezeBlowDir, uBreezeIntensity, uBreezeSwirl);
             } else if (uMotionStyle == 3) {
                 livePos = evalKineticGPU(homePosition, aCustomDir, uExplosionElapsed);
             } else {
@@ -955,10 +991,13 @@ const uniforms = {
     uFunnelCrownExp: { value: 1.4 },
     uBreezeBlowDir: { value: 1.0 },
     uBreezeIntensity: { value: 1.0 },
+    uBreezeSwirl: { value: 0.0 },
     uMouseWorld: { value: new Vector3(-1000, -1000, 0) },
     uMousePushDistance: { value: CONFIG.repulsionStrength },
     uMouseActive: { value: 0.0 }
 };
+
+let breezeSeqCounter = 0;
 
 // ─────────────────────────────────────────────
 function showToast(message) {
@@ -2101,21 +2140,37 @@ function randomizeExplosionVectors() {
         };
     }
 
-    // Procedural randomized 3D breeze configuration (style 2)
-    const blowFromLeft = Math.random() < 0.5;
+    // Procedural randomized 3D breeze configuration (style 2) with varied sequence intensity
+    breezeSeqCounter++;
+    // Varied dynamic intensity tiers across sequenced triggers:
+    // 0: Fresh Billowing Gust (~1.35)
+    // 1: Strong Surging Gale (~1.85)
+    // 2: Gentle Whispering Draft (~0.90)
+    // 3: Sweeping High Ribbon Storm (~2.20)
+    const intensityModes = [1.35, 1.85, 0.90, 2.20];
+    const baseTier = intensityModes[breezeSeqCounter % intensityModes.length];
+    const breezeIntensity = baseTier * (0.92 + Math.random() * 0.16);
+
+    // Alternate / shift blow direction across sequential animations
+    const blowFromLeft = (breezeSeqCounter % 2 === 1) ? true : (Math.random() < 0.5);
     const dirX = blowFromLeft ? 1.0 : -1.0;
-    const breezeIntensity = 0.55 + Math.random() * 0.90; // Random intensity (0.55x gentle whisper to 1.45x strong gale)
     let gx = dirX;
     let gy = (Math.random() - 0.5) * 0.08;
     let gz = (Math.random() - 0.5) * 0.05;
     const glen = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
     gx /= glen; gy /= glen; gz /= glen;
     gustX = gx; gustY = gy; gustZ = gz;
-    gustPerpX = 0; gustPerpY = 1.0; gustPerpZ = 0;
+    // Varied dynamic swirl levels across sequenced animations:
+    // Some triggers have 0.0 (pure smooth ribbon glide, zero swirl),
+    // others have soft (0.35), medium (0.85), or powerful whirlwind curl (1.45)!
+    const swirlModes = [0.0, 0.85, 1.45, 0.35, 0.0, 1.20];
+    const baseSwirl = swirlModes[breezeSeqCounter % swirlModes.length];
+    const breezeSwirl = (baseSwirl === 0.0) ? 0.0 : baseSwirl * (0.85 + Math.random() * 0.30);
 
     activeBreezeConfig = {
         blowDir: dirX,
         intensity: breezeIntensity,
+        swirl: breezeSwirl,
         windAngleY: (Math.random() - 0.5) * 0.22,
         windAngleZ: (Math.random() - 0.5) * 0.12,
         strengthMult: breezeIntensity,
@@ -3270,6 +3325,7 @@ function animate() {
         uniforms.uFunnelCrownExp.value = (state.pattern && state.pattern.funnelCrownExp) || 1.4;
         uniforms.uBreezeBlowDir.value = (activeBreezeConfig && activeBreezeConfig.blowDir) || 1.0;
         uniforms.uBreezeIntensity.value = (activeBreezeConfig && activeBreezeConfig.intensity) || 1.0;
+        uniforms.uBreezeSwirl.value = (activeBreezeConfig && activeBreezeConfig.swirl != null) ? activeBreezeConfig.swirl : 0.0;
         uniforms.uMouseWorld.value.set(-1000, -1000, 0);
         uniforms.uMousePushDistance.value = 0.0;
         uniforms.uMouseInfluence.value = 0.0;
