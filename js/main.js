@@ -634,7 +634,7 @@ void main() {
     }
 
     // Smooth spatial gradient across the sculpture blended with mouse hover glow
-    float spatialGrad = clamp((livePos.y + 12.0) / 24.0 + 0.15 * sin(0.12 * livePos.x), 0.0, 1.0);
+    float spatialGrad = clamp((homePosition.y + 12.0) / 24.0 + 0.15 * sin(0.12 * homePosition.x), 0.0, 1.0);
     float mouseHeat = clamp(1.0 - distance(uMouse, livePos) / uMouseInfluence, 0.0, 1.0);
     float tMix = clamp(mix(spatialGrad, 1.0, mouseHeat * 0.9), 0.0, 1.0);
     vec3 themeColor = (tMix < 0.5)
@@ -645,15 +645,18 @@ void main() {
     // readable); text mode keeps the theme heatmap exactly as before.
     vec3 baseColor = mix(themeColor, sourceColor.rgb, uEmojiMode);
 
-    // Movement heatmap: cooler (blue) near the particle's OWN initial position, hotter
-    // (red) the further it has been displaced, with yellow in between.
+    // Movement heatmap: cooler near the particle's OWN initial position, hotter
+    // the further it has been displaced.
     float movement = length(livePos - homePosition);
     float heat = smoothstep(0.05, uHeatDistance, movement);
     vec3 movementColor = (heat < 0.5)
         ? mix(uHeatCold, uHeatWarm, heat * 2.0)
         : mix(uHeatWarm, uHeatHot, (heat - 0.5) * 2.0);
 
-    vec3 motionColor = mix(movementColor, sourceColor.rgb, uEmojiMode * uEmojiMotionMix);
+    // Blend the particle's intrinsic themeColor with the kinetic heat and motion
+    // so the themed colors remain vivid and animate across the entire trajectory
+    vec3 themedMotionColor = mix(themeColor, movementColor, 0.45 * heat);
+    vec3 motionColor = mix(themedMotionColor, sourceColor.rgb, uEmojiMode * uEmojiMotionMix);
     vColor = mix(baseColor, motionColor, uExplosionActive);
 
     // Audio-reactive brightness: mid/high energy brighten the particles, the envelope
@@ -1925,6 +1928,10 @@ function buildTrailsAndEmbers() {
 function updateTrails() {
     if (!render.particles || !render.trailData) return;
     if (isMotionReduced && render.trailPoints) { render.trailPoints.visible = false; return; }
+    if (state.gpuPhysics && physics.explosionStartTime >= 0) {
+        if (render.trailPoints) render.trailPoints.visible = false;
+        return;
+    }
     if (render.trailPoints) render.trailPoints.visible = true;
 
     // State-based idle settling gate: when no active explosion, dragging or mouse
@@ -3178,6 +3185,9 @@ function animate() {
                 pos.set(posHome);
                 posAttr.needsUpdate = true;
             }
+            if (render.trailPoints && !isMotionReduced) {
+                render.trailPoints.visible = true;
+            }
             clearActivePresets();
             setAnimationControlsDisabled(false);
         } else {
@@ -3242,6 +3252,7 @@ function animate() {
 
     // GPU-Native Kinematics vs CPU Fallback
     if (state.gpuPhysics && isExploding) {
+        if (render.trailPoints) render.trailPoints.visible = false;
         uniforms.uGpuPhysics.value = 1.0;
         uniforms.uMotionStyle.value = (activeStyle >= 0) ? activeStyle : 0;
         uniforms.uExplosionElapsed.value = (physics.explosionStartTime >= 0) ? elapsed : -1.0;
