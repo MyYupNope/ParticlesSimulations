@@ -174,13 +174,13 @@ self.onmessage = function (e) {
             maxTravelSq = 0;
         }
 
-        const mx = mouseLocal ? mouseLocal.x : 99999;
-        const my = mouseLocal ? mouseLocal.y : 99999;
-        const mz = mouseLocal ? mouseLocal.z : 99999;
-        const mouseInfSq = mouseInfluence * mouseInfluence;
-
         const isExploding = (elapsed >= 0);
         const origin = explosionOrigin || posHome;
+
+        const mx = (!isExploding && mouseLocal) ? mouseLocal.x : 99999;
+        const my = (!isExploding && mouseLocal) ? mouseLocal.y : 99999;
+        const mz = (!isExploding && mouseLocal) ? mouseLocal.z : 99999;
+        const mouseInfSq = (!isExploding && mouseInfluence > 0) ? mouseInfluence * mouseInfluence : 0;
 
         const isTornado = activeStyle === 1
             && pattern.funnelHeight

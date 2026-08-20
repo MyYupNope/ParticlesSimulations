@@ -163,3 +163,45 @@ test('BREEZE triggers cleanly on Web Worker without console errors and recovers 
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
 });
+
+test('animation locks preset selection and disables hover effect until finished', async ({ page }) => {
+    await page.goto('/');
+    await waitForRender(page);
+
+    // Trigger Breeze preset
+    await page.click('[data-text="BREEZE"]');
+
+    // Confirm animation is active
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === true);
+
+    // Verify all preset buttons are disabled while animating
+    const chipsDisabled = await page.evaluate(() => {
+        const chips = Array.from(document.querySelectorAll('.preset-chip'));
+        return chips.every(c => c.disabled && c.classList.contains('disabled'));
+    });
+    expect(chipsDisabled).toBe(true);
+
+    // Move mouse over canvas and verify uMouse uniform is clamped / disabled (-1000)
+    await page.mouse.move(500, 300);
+    const uMouseDuringExplosion = await page.evaluate(() => {
+        const v = window.__artzDebug._render().particles.material.uniforms.uMouse.value;
+        return { x: v.x, y: v.y };
+    });
+    expect(uMouseDuringExplosion.x).toBe(-1000);
+    expect(uMouseDuringExplosion.y).toBe(-1000);
+
+    // Attempting to click another preset should not change the running style (remains Breeze = style 2)
+    await page.click('[data-text="EXPLODE"]', { force: true });
+    expect(await page.evaluate(() => window.__artzDebug.snapshot(1).randomized.style)).toBe(2);
+
+    // Wait until animation completes
+    await page.waitForFunction(() => !window.__artzDebug.snapshot(1).explosionActive, null, { timeout: 16_000 });
+
+    // Verify preset buttons are re-enabled
+    const chipsEnabled = await page.evaluate(() => {
+        const chips = Array.from(document.querySelectorAll('.preset-chip'));
+        return chips.every(c => !c.disabled && !c.classList.contains('disabled'));
+    });
+    expect(chipsEnabled).toBe(true);
+});
+

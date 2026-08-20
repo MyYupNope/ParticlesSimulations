@@ -546,6 +546,23 @@ select option {
     font-weight: 600;
 }
 
+.preset-chip:disabled,
+.preset-chip.disabled {
+    opacity: 0.45;
+    cursor: not-allowed !important;
+    pointer-events: none;
+    transform: none !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    box-shadow: none !important;
+}
+
+.preset-chip.active:disabled,
+.preset-chip.active.disabled {
+    opacity: 0.85;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
 /* Emoji Quick-pick Row */
 #emoji-row {
     display: flex;

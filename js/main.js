@@ -2267,8 +2267,22 @@ function captureExplosionOrigin() {
     }
 }
 
+// Enable / disable preset animation buttons during active animation
+function setAnimationControlsDisabled(disabled) {
+    const chips = document.querySelectorAll('.preset-chip');
+    chips.forEach(chip => {
+        chip.disabled = disabled;
+        chip.classList.toggle('disabled', disabled);
+        if (disabled) {
+            chip.setAttribute('aria-disabled', 'true');
+        } else {
+            chip.removeAttribute('aria-disabled');
+        }
+    });
+}
+
 function triggerExplosion(force = false) {
-    if (physics.explosionStartTime >= 0 && !force) return;
+    if (physics.explosionStartTime >= 0) return;
     physics.explosionStartTime = -1;
 
     // Every particle explodes from the position the user actually sees, not from
@@ -2314,6 +2328,8 @@ function triggerExplosion(force = false) {
     }
 
     physics.explosionStartTime = render.clock.getElapsedTime();
+    setAnimationControlsDisabled(true);
+
     if (state.motionStyle === 0 || state.motionStyle === -1) {
         flashImpact();
     }
@@ -2403,6 +2419,7 @@ function resetToDefaultExplosion() {
 // Apply active preset's settings, or pick a random preset if none is selected.
 // Used by dblclick / Space / multi-tap shortcuts.
 function applyActiveOrRandomPreset() {
+    if (physics.explosionStartTime >= 0) return;
     if (state.activePreset) {
         // Settings already loaded when user clicked the preset chip — nothing to do.
         return;
@@ -2917,6 +2934,7 @@ function setupUI() {
     const chips = document.querySelectorAll('.preset-chip');
     chips.forEach(chip => {
         chip.addEventListener('click', async () => {
+            if (physics.explosionStartTime >= 0) return;
             const presetVal = chip.getAttribute('data-text');
             
             // Set custom explosion dynamics and sound properties
@@ -2924,7 +2942,7 @@ function setupUI() {
             setActivePreset(presetVal); // Highlight the selected preset chip
             
             // Trigger the unique explosion
-            triggerExplosion(true);
+            triggerExplosion();
         });
     });
 
@@ -3097,7 +3115,13 @@ function animate() {
     // Transform mouse coordinate system to local space
     invMatrix.copy(particles.matrixWorld).invert();
     interaction.mouseLocal.copy(interaction.mouseWorld).applyMatrix4(invMatrix);
-    uniforms.uMouse.value.copy(interaction.mouseLocal);
+
+    const isExploding = (physics.explosionStartTime >= 0);
+    if (isExploding) {
+        uniforms.uMouse.value.set(-1000, -1000, 0);
+    } else {
+        uniforms.uMouse.value.copy(interaction.mouseLocal);
+    }
 
     // Spring mechanics variables calculation
     const posAttr = particles.geometry.attributes.position;
@@ -3155,6 +3179,7 @@ function animate() {
                 posAttr.needsUpdate = true;
             }
             clearActivePresets();
+            setAnimationControlsDisabled(false);
         } else {
             // At peak, lock the contraction duration to the ACTUAL distance travelled
             // so recovery genuinely reflects how far particles flew.
@@ -3216,7 +3241,6 @@ function animate() {
     }
 
     // GPU-Native Kinematics vs CPU Fallback
-    const isExploding = (physics.explosionStartTime >= 0);
     if (state.gpuPhysics && isExploding) {
         uniforms.uGpuPhysics.value = 1.0;
         uniforms.uMotionStyle.value = (activeStyle >= 0) ? activeStyle : 0;
@@ -3235,10 +3259,10 @@ function animate() {
         uniforms.uFunnelCrownExp.value = (state.pattern && state.pattern.funnelCrownExp) || 1.4;
         uniforms.uBreezeBlowDir.value = (activeBreezeConfig && activeBreezeConfig.blowDir) || 1.0;
         uniforms.uBreezeIntensity.value = (activeBreezeConfig && activeBreezeConfig.intensity) || 1.0;
-        uniforms.uMouseWorld.value.copy(interaction.mouseLocal);
-        uniforms.uMousePushDistance.value = CONFIG.repulsionStrength;
-        uniforms.uMouseInfluence.value = CONFIG.mouseInfluence;
-        uniforms.uMouseActive.value = (interaction.mouseWorld.x > -900) ? 1.0 : 0.0;
+        uniforms.uMouseWorld.value.set(-1000, -1000, 0);
+        uniforms.uMousePushDistance.value = 0.0;
+        uniforms.uMouseInfluence.value = 0.0;
+        uniforms.uMouseActive.value = 0.0;
     } else {
         uniforms.uGpuPhysics.value = 0.0;
 
@@ -3268,14 +3292,14 @@ function animate() {
                         springDisp: slot.springDisp,
                         springVel: slot.springVel,
                         count, dt, elapsed,
-                        mouseLocal: { x: ml.x, y: ml.y, z: ml.z },
+                        mouseLocal: isExploding ? { x: 99999, y: 99999, z: 99999 } : { x: ml.x, y: ml.y, z: ml.z },
                         kFrame, dampFrame,
                         expansionDuration: activeExpDuration,
                         driftDuration: (activeStyle === 0 || activeStyle === 3 || activeStyle === -1) ? 3.0 : 0.0,
                         contractionDuration: activeContrDuration,
                         explosionMaxDistMultiplier: activeMaxDistMult,
-                        mouseInfluence,
-                        repulsionStr,
+                        mouseInfluence: isExploding ? 0 : mouseInfluence,
+                        repulsionStr: isExploding ? 0 : repulsionStr,
                         breeze: activeBreezeConfig,
                         sourceGeneration: physics.sourceGeneration,
                         motionToken: physics.motionToken
@@ -3345,7 +3369,7 @@ function animate() {
                 const d2 = ddx * ddx + ddy * ddy + ddz * ddz;
 
                 let tdx = 0, tdy = 0, tdz = 0;
-                if (d2 < mouseInfluence2 && d2 > 0.00001) {
+                if (!isExploding && d2 < mouseInfluence2 && d2 > 0.00001) {
                     const d    = Math.sqrt(d2);
                     const invD = 1.0 / d;
                     const force = (mouseInfluence - d) / mouseInfluence;
@@ -3576,6 +3600,7 @@ async function init() {
     });
     window.addEventListener('dblclick', e => {
         if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
+        if (physics.explosionStartTime >= 0) return;
         applyActiveOrRandomPreset(); // Use active preset or random if none selected
         triggerExplosion();
     });
@@ -3597,8 +3622,10 @@ async function init() {
             if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
                 e.preventDefault();
                 if (e.code === 'Space') {
-                    applyActiveOrRandomPreset(); // Use active preset or random if none selected
-                    triggerExplosion();
+                    if (physics.explosionStartTime < 0) {
+                        applyActiveOrRandomPreset(); // Use active preset or random if none selected
+                        triggerExplosion();
+                    }
                 }
             }
         }
