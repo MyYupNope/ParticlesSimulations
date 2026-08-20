@@ -2491,7 +2491,7 @@ async function applyPresetExplosion(presetName, shouldScatter = false) {
 // Pointer & Gesture Handlers
 // ─────────────────────────────────────────────
 function onPointerDown(e) {
-    if (e.target.closest('#control-panel')) return;
+    if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
 
     // Desktop mouse drag rotation start
     if (e.pointerType === 'mouse') {
@@ -2516,7 +2516,7 @@ function onPointerDown(e) {
 }
 
 function onTouchStart(e) {
-    if (e.target.closest('#control-panel')) return;
+    if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
     if (e.touches.length === 1) {
         updateMouse(e.touches[0].clientX, e.touches[0].clientY);
     } else if (e.touches.length === 2) {
@@ -2531,7 +2531,7 @@ function onTouchStart(e) {
 }
 
 function onTouchMove(e) {
-    if (e.target.closest('#control-panel')) return;
+    if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
     e.preventDefault();
 
     if (e.touches.length === 1) {
@@ -2723,6 +2723,36 @@ function handleImageUpload(file) {
 }
 
 // ─────────────────────────────────────────────
+// Mobile Menu Drawer Controls
+// ─────────────────────────────────────────────
+function openMobileMenu() {
+    const panel = document.getElementById('control-panel');
+    const backdrop = document.getElementById('menu-backdrop');
+    const toggleBtn = document.getElementById('menu-toggle-btn');
+    if (panel) panel.classList.add('open');
+    if (backdrop) backdrop.classList.add('active');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeMobileMenu() {
+    const panel = document.getElementById('control-panel');
+    const backdrop = document.getElementById('menu-backdrop');
+    const toggleBtn = document.getElementById('menu-toggle-btn');
+    if (panel) panel.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('active');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleMobileMenu() {
+    const panel = document.getElementById('control-panel');
+    if (panel && panel.classList.contains('open')) {
+        closeMobileMenu();
+    } else {
+        openMobileMenu();
+    }
+}
+
+// ─────────────────────────────────────────────
 // UI Setup
 // ─────────────────────────────────────────────
 function setupUI() {
@@ -2730,6 +2760,27 @@ function setupUI() {
     const themeSelect = document.getElementById('theme-select');
     const fontSelect = document.getElementById('font-select');
     const captureBtn = document.getElementById('capture-btn');
+    const menuToggleBtn = document.getElementById('menu-toggle-btn');
+    const menuCloseBtn = document.getElementById('menu-close-btn');
+    const menuBackdrop = document.getElementById('menu-backdrop');
+
+    if (menuToggleBtn) {
+        menuToggleBtn.addEventListener('click', () => {
+            toggleMobileMenu();
+        });
+    }
+
+    if (menuCloseBtn) {
+        menuCloseBtn.addEventListener('click', () => {
+            closeMobileMenu();
+        });
+    }
+
+    if (menuBackdrop) {
+        menuBackdrop.addEventListener('click', () => {
+            closeMobileMenu();
+        });
+    }
 
     // Sync state to UI elements
     if (textInput) {
@@ -3524,7 +3575,7 @@ async function init() {
         interaction.isDragging = false;
     });
     window.addEventListener('dblclick', e => {
-        if (e.target.closest('#control-panel')) return;
+        if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
         applyActiveOrRandomPreset(); // Use active preset or random if none selected
         triggerExplosion();
     });
@@ -3534,6 +3585,13 @@ async function init() {
     window.addEventListener('resize', updateStageLayout);
     
     window.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            const controlPanel = document.getElementById('control-panel');
+            if (controlPanel && controlPanel.classList.contains('open')) {
+                closeMobileMenu();
+                return;
+            }
+        }
         interaction.keys[e.key] = true;
         if (e.code === 'Space' || e.key.startsWith('Arrow')) {
             if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {

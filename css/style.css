@@ -31,33 +31,185 @@ canvas {
 
 /* Stage: the space reserved for the sculpture, excluding the control panel.
    Default (small screens) is the full viewport with the panel on top. */
+:root {
+    --bg-color: #030308;
+    --panel-bg: rgba(10, 10, 20, 0.65);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent: #6366f1;
+    --accent-glow: rgba(99, 102, 241, 0.25);
+    --danger: #ef4444;
+    --danger-glow: rgba(239, 68, 68, 0.2);
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--bg-color);
+    font-family: 'Outfit', sans-serif;
+    touch-action: none;
+    user-select: none;
+    color: var(--text-primary);
+}
+
+canvas {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+/* Stage: the space reserved for the sculpture, excluding the control panel.
+   Default (small screens) is the full viewport with the panel on top. */
 #stage {
     position: absolute;
     inset: 0;
     z-index: 1;
 }
 
-/* Control Panel */
+/* Mobile Hamburger Menu Toggle Button */
+.menu-toggle-btn {
+    display: none;
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 50;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(10, 10, 20, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--panel-border);
+    color: var(--text-primary);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.menu-toggle-btn:hover {
+    background: rgba(20, 20, 35, 0.9);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 15px var(--accent-glow);
+}
+
+.hamburger-icon {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    width: 20px;
+    height: 20px;
+}
+
+.hamburger-line {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background-color: var(--text-primary);
+    border-radius: 2px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Mobile Menu Backdrop */
+.menu-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 30;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.menu-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Sidebar Header & Close Button */
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 2px;
+}
+
+.sidebar-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.menu-close-btn {
+    display: none;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.menu-close-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+/* Control Panel / Sidebar */
 #control-panel {
     position: absolute;
     top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 20px;
     z-index: 10;
     background: var(--panel-bg);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid var(--panel-border);
     border-radius: 20px;
-    padding: 16px 24px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    width: 680px;
-    max-width: 90%;
+    width: 320px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6),
                 inset 0 1px 1px rgba(255, 255, 255, 0.1);
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
+    box-sizing: border-box;
+}
+
+#control-panel::-webkit-scrollbar {
+    width: 5px;
+}
+#control-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+#control-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+#control-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 #control-panel:hover {
@@ -459,17 +611,31 @@ select option {
     white-space: nowrap;
 }
 
-/* Desktop: dock the control panel on the left as a compact card and shift the
+/* Desktop: dock the control panel on the left as a compact sidebar and shift the
    stage right so the sculpture stays centered in the remaining space. */
 @media (min-width: 769px) {
+    .menu-toggle-btn {
+        display: none !important;
+    }
+
+    .menu-backdrop {
+        display: none !important;
+    }
+
+    .menu-close-btn {
+        display: none !important;
+    }
+
     #control-panel {
         left: 20px;
         top: 20px;
+        bottom: 20px;
         transform: none;
         width: 320px;
         max-width: none;
         max-height: calc(100vh - 40px);
         overflow-y: auto;
+        border-radius: 20px;
     }
 
     .control-row {
@@ -487,16 +653,44 @@ select option {
     }
 }
 
-/* Mobile Responsiveness */
+/* Mobile Responsiveness: Hidden drawer sidebar toggled by Hamburger menu */
 @media (max-width: 768px) {
+    .menu-toggle-btn {
+        display: flex;
+    }
+
+    .menu-backdrop {
+        display: block;
+    }
+
+    .menu-close-btn {
+        display: flex;
+    }
+
     #control-panel {
-        width: 90%;
-        padding: 14px;
-        gap: 12px;
-        top: 10px;
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-        background: rgba(10, 10, 20, 0.94);
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 320px;
+        max-width: 85vw;
+        height: 100vh;
+        max-height: 100vh;
+        border-radius: 0 20px 20px 0;
+        padding: 20px 18px;
+        gap: 14px;
+        transform: translateX(-105%);
+        transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        background: rgba(10, 10, 20, 0.92);
+        z-index: 40;
+    }
+
+    #control-panel.open {
+        transform: translateX(0);
+        box-shadow: 15px 0 50px rgba(0, 0, 0, 0.8),
+                    0 0 30px var(--accent-glow);
     }
     
     .control-row {
@@ -536,6 +730,13 @@ select option {
         flex: 0 0 auto;
         width: 40px;
         height: 40px;
+    }
+
+    #stage {
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
     }
 
     #overlay {

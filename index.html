@@ -28,10 +28,25 @@
 
     <link rel="stylesheet" href="./css/style.css">
 </head>
-
 <body>
-    <!-- [2.1 / 5.3] Fully Expanded Control Panel -->
+    <!-- Mobile Hamburger Menu Button -->
+    <button id="menu-toggle-btn" class="menu-toggle-btn" aria-label="Toggle simulation options" aria-expanded="false" aria-controls="control-panel">
+        <span class="hamburger-icon" aria-hidden="true">
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+        </span>
+    </button>
+
+    <!-- Mobile Menu Backdrop -->
+    <div id="menu-backdrop" class="menu-backdrop" aria-hidden="true"></div>
+
+    <!-- [2.1 / 5.3] Fully Expanded Control Panel / Sidebar -->
     <div id="control-panel">
+        <div class="sidebar-header">
+            <span class="sidebar-title">Simulation Controls</span>
+            <button id="menu-close-btn" class="menu-close-btn" aria-label="Close menu">✕</button>
+        </div>
         <section id="message-section" class="control-section" aria-labelledby="message-heading">
             <h2 id="message-heading">MESSAGE</h2>
             <div class="message-options" role="tablist" aria-label="Message type">

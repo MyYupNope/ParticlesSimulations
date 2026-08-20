@@ -28,18 +28,21 @@ async function stageInfo(page) {
     });
 }
 
-test('desktop: menu docks left and sculpture centers in the remaining space', async ({ page }) => {
+test('desktop: sidebar docks left, hamburger button is hidden, and sculpture centers in stage', async ({ page }) => {
     const W = 1280, H = 720;
     await openPage(page, W, H);
 
     const info = await stageInfo(page);
 
-    // Menu is a compact card on the left half.
+    // Hamburger button is hidden on desktop.
+    expect(await page.locator('#menu-toggle-btn').isVisible()).toBe(false);
+
+    // Menu is a sidebar on the left half.
     expect(info.panel.right).toBeLessThan(W / 2);
     expect(info.panel.top).toBeCloseTo(20, 0);
     expect(info.panel.left).toBeCloseTo(20, 0);
 
-    // Stage (and canvas) start right of the menu (~360px) and fill the rest.
+    // Stage (and canvas) start right of the sidebar (~360px) and fill the rest.
     expect(info.stage.left).toBeGreaterThan(300);
     expect(info.stage.left).toBeLessThan(400);
     expect(info.canvas.left).toBeGreaterThan(300);
@@ -61,15 +64,11 @@ test('desktop: menu docks left and sculpture centers in the remaining space', as
     expect(Math.abs(u.y)).toBeLessThan(0.01);
 });
 
-test('mobile: menu stays on top and stage covers the full viewport', async ({ page }) => {
+test('mobile: hamburger menu toggles hidden slide-out sidebar drawer and stage covers full viewport', async ({ page }) => {
     const W = 390, H = 844;
     await openPage(page, W, H);
 
     const info = await stageInfo(page);
-
-    // Menu is top-centered.
-    expect(info.panel.top).toBeLessThan(60);
-    expect(Math.abs(info.panel.centerX - W / 2)).toBeLessThan(40);
 
     // Stage/canvas cover the full viewport (no reserved menu space).
     expect(info.stage.left).toBe(0);
@@ -77,4 +76,38 @@ test('mobile: menu stays on top and stage covers the full viewport', async ({ pa
     expect(info.stage.width).toBeCloseTo(W, 0);
     expect(info.canvas.left).toBe(0);
     expect(info.canvas.width).toBeCloseTo(W, 0);
+
+    // Hamburger button is visible on mobile.
+    const toggleBtn = page.locator('#menu-toggle-btn');
+    await expect(toggleBtn).toBeVisible();
+    expect(await toggleBtn.getAttribute('aria-expanded')).toBe('false');
+
+    // Sidebar panel is closed / off-screen initially.
+    const panel = page.locator('#control-panel');
+    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
+
+    // Click hamburger button to open drawer.
+    await toggleBtn.click();
+    await expect(panel).toHaveClass(/open/);
+    expect(await toggleBtn.getAttribute('aria-expanded')).toBe('true');
+    await expect(page.locator('#menu-backdrop')).toHaveClass(/active/);
+
+    // Click close button inside drawer to close.
+    const closeBtn = page.locator('#menu-close-btn');
+    await closeBtn.click();
+    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
+    expect(await toggleBtn.getAttribute('aria-expanded')).toBe('false');
+
+    // Open again and close via Escape key.
+    await toggleBtn.click();
+    await expect(panel).toHaveClass(/open/);
+    await page.keyboard.press('Escape');
+    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
+
+    // Open again and close by clicking backdrop.
+    await toggleBtn.click();
+    await expect(panel).toHaveClass(/open/);
+    await page.locator('#menu-backdrop').click({ position: { x: 350, y: 400 } });
+    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
 });
+
