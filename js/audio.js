@@ -129,60 +129,33 @@ export function playExplosionSound(stateParam, estimatedRecovery) {
     }
 
     if (motionStyle === 3) {
-        // Surfer's Hollow Barrel Tube Synthesizer (~7.5s)
-        // Option 2: Spatialized Stereo Panning (Left -> Center -> Right across the screen)
+        // ── 4-Layer Ocean Beach Wave Synthesizer (~7.5s) ──
+        // Simulates: Deep Ocean Swell -> Cresting Wave Crash -> Shoreline Foam Fizz on Sand -> Receding Backwash
         const totalKineticDur = 7.5;
 
-        // Stereo Panner across stage
+        // Stereo Panner (Left -> Center -> Right across the shoreline)
         const panner = (typeof ctx.createStereoPanner === 'function') ? ctx.createStereoPanner() : null;
         if (panner) {
-            panner.pan.setValueAtTime(-0.85, now);
-            panner.pan.linearRampToValueAtTime(0.85, now + totalKineticDur);
+            panner.pan.setValueAtTime(-0.75, now);
+            panner.pan.linearRampToValueAtTime(0.75, now + totalKineticDur);
             panner.connect(master);
         }
         const targetOutput = panner || master;
 
-        // 1. Hollow Barrel Whitewater & Tube Air Rush (Bandpass Filtered Noise)
-        const waveNoise = ctx.createBufferSource();
-        waveNoise.buffer = createNoiseBuffer(ctx);
-        waveNoise.loop = true;
-
-        const waveFilter = ctx.createBiquadFilter();
-        waveFilter.type = 'bandpass';
-        waveFilter.frequency.setValueAtTime(120, now);
-        waveFilter.frequency.exponentialRampToValueAtTime(320, now + 2.2);  // Peeling wall
-        waveFilter.frequency.exponentialRampToValueAtTime(680, now + 4.5);  // Hollow barrel peak
-        waveFilter.frequency.linearRampToValueAtTime(220, now + 6.0);       // Closeout
-        waveFilter.frequency.exponentialRampToValueAtTime(35, now + totalKineticDur);
-        waveFilter.Q.value = 2.2;
-
-        const waveGain = ctx.createGain();
-        waveGain.gain.setValueAtTime(0.0001, now);
-        waveGain.gain.exponentialRampToValueAtTime(0.16, now + 1.8);
-        waveGain.gain.linearRampToValueAtTime(0.48, now + 4.5);             // Peak barrel roar
-        waveGain.gain.linearRampToValueAtTime(0.18, now + 6.0);             // Closeout fizz
-        waveGain.gain.exponentialRampToValueAtTime(0.0001, now + totalKineticDur);
-
-        waveNoise.connect(waveFilter);
-        waveFilter.connect(waveGain);
-        waveGain.connect(targetOutput);
-        waveNoise.start(now);
-        waveNoise.stop(now + totalKineticDur + 0.1);
-
-        // 2. Heavy Subterranean Surf Swell (Sub-bass Oscillator)
+        // ── 1. Deep Ocean Mass & Gathering Swell (Sub-bass + Low-frequency Water Body) ──
         const subSwell = ctx.createOscillator();
         subSwell.type = 'sine';
-        subSwell.frequency.setValueAtTime(36, now);
-        subSwell.frequency.linearRampToValueAtTime(46, now + 2.2);
-        subSwell.frequency.linearRampToValueAtTime(64, now + 4.5);          // Wave mass inside barrel
-        subSwell.frequency.linearRampToValueAtTime(32, now + 6.0);
-        subSwell.frequency.exponentialRampToValueAtTime(18, now + totalKineticDur);
+        subSwell.frequency.setValueAtTime(32, now);
+        subSwell.frequency.linearRampToValueAtTime(48, now + 2.5);          // Swell lifting
+        subSwell.frequency.linearRampToValueAtTime(58, now + 4.2);          // Wave crest mass
+        subSwell.frequency.linearRampToValueAtTime(36, now + 5.8);          // Spreading onto shore
+        subSwell.frequency.exponentialRampToValueAtTime(20, now + totalKineticDur);
 
         const subGain = ctx.createGain();
         subGain.gain.setValueAtTime(0.0001, now);
-        subGain.gain.exponentialRampToValueAtTime(0.22, now + 1.8);
-        subGain.gain.linearRampToValueAtTime(0.55, now + 4.5);             // Peak wave body
-        subGain.gain.linearRampToValueAtTime(0.16, now + 6.0);
+        subGain.gain.exponentialRampToValueAtTime(0.24, now + 2.0);
+        subGain.gain.linearRampToValueAtTime(0.48, now + 4.2);              // Peak wave power
+        subGain.gain.linearRampToValueAtTime(0.18, now + 5.8);
         subGain.gain.exponentialRampToValueAtTime(0.0001, now + totalKineticDur);
 
         subSwell.connect(subGain);
@@ -190,13 +163,97 @@ export function playExplosionSound(stateParam, estimatedRecovery) {
         subSwell.start(now);
         subSwell.stop(now + totalKineticDur + 0.1);
 
+        // ── 2. Breaking Surf & Rolling Whitewater (Dynamic Sweeping Low-pass Noise) ──
+        const surfNoise = ctx.createBufferSource();
+        surfNoise.buffer = createNoiseBuffer(ctx);
+        surfNoise.loop = true;
+
+        const surfFilter = ctx.createBiquadFilter();
+        surfFilter.type = 'lowpass';
+        surfFilter.frequency.setValueAtTime(140, now);
+        surfFilter.frequency.exponentialRampToValueAtTime(420, now + 2.2);   // Rising swell rush
+        surfFilter.frequency.exponentialRampToValueAtTime(1250, now + 4.2);  // Breaking surf roar
+        surfFilter.frequency.linearRampToValueAtTime(550, now + 5.6);        // Spreading wash
+        surfFilter.frequency.exponentialRampToValueAtTime(75, now + totalKineticDur); // Backwash hum
+        surfFilter.Q.value = 1.1;
+
+        const surfGain = ctx.createGain();
+        surfGain.gain.setValueAtTime(0.0001, now);
+        surfGain.gain.exponentialRampToValueAtTime(0.18, now + 1.8);
+        surfGain.gain.linearRampToValueAtTime(0.52, now + 4.2);              // Peak crest break
+        surfGain.gain.linearRampToValueAtTime(0.22, now + 5.6);
+        surfGain.gain.exponentialRampToValueAtTime(0.0001, now + totalKineticDur);
+
+        surfNoise.connect(surfFilter);
+        surfFilter.connect(surfGain);
+        surfGain.connect(targetOutput);
+        surfNoise.start(now);
+        surfNoise.stop(now + totalKineticDur + 0.1);
+
+        // ── 3. Shoreline Foam Fizz & Sea Spray on Sand (Crisp High-pass/Bandpass Shimmer) ──
+        const foamNoise = ctx.createBufferSource();
+        foamNoise.buffer = createNoiseBuffer(ctx);
+        foamNoise.loop = true;
+
+        const foamFilter = ctx.createBiquadFilter();
+        foamFilter.type = 'bandpass';
+        foamFilter.frequency.setValueAtTime(1400, now);
+        foamFilter.frequency.exponentialRampToValueAtTime(2400, now + 3.8);  // Whitecap foam forming
+        foamFilter.frequency.exponentialRampToValueAtTime(3200, now + 4.6);  // Sizzling sea foam on sand
+        foamFilter.frequency.linearRampToValueAtTime(1800, now + 6.0);       // Bubbles popping
+        foamFilter.frequency.exponentialRampToValueAtTime(600, now + totalKineticDur);
+        foamFilter.Q.value = 1.4;
+
+        const foamGain = ctx.createGain();
+        foamGain.gain.setValueAtTime(0.0001, now);
+        foamGain.gain.exponentialRampToValueAtTime(0.04, now + 2.5);
+        foamGain.gain.linearRampToValueAtTime(0.38, now + 4.4);              // Crisp foam crash & sizzle
+        foamGain.gain.linearRampToValueAtTime(0.26, now + 5.4);              // Sizzling wash
+        foamGain.gain.exponentialRampToValueAtTime(0.0001, now + totalKineticDur);
+
+        foamNoise.connect(foamFilter);
+        foamFilter.connect(foamGain);
+        foamGain.connect(targetOutput);
+        foamNoise.start(now);
+        foamNoise.stop(now + totalKineticDur + 0.1);
+
+        // ── 4. Receding Undertow Backwash (Gentle Filtering Water Drain) ──
+        const backwashNoise = ctx.createBufferSource();
+        backwashNoise.buffer = createNoiseBuffer(ctx);
+        backwashNoise.loop = true;
+
+        const backwashFilter = ctx.createBiquadFilter();
+        backwashFilter.type = 'bandpass';
+        backwashFilter.frequency.setValueAtTime(700, now + 4.5);
+        backwashFilter.frequency.exponentialRampToValueAtTime(280, now + 6.2);
+        backwashFilter.frequency.exponentialRampToValueAtTime(90, now + totalKineticDur);
+        backwashFilter.Q.value = 1.8;
+
+        const backwashGain = ctx.createGain();
+        backwashGain.gain.setValueAtTime(0.0001, now);
+        backwashGain.gain.setValueAtTime(0.0001, now + 4.5);
+        backwashGain.gain.linearRampToValueAtTime(0.18, now + 5.5);          // Undertow rush
+        backwashGain.gain.exponentialRampToValueAtTime(0.0001, now + totalKineticDur);
+
+        backwashNoise.connect(backwashFilter);
+        backwashFilter.connect(backwashGain);
+        backwashGain.connect(targetOutput);
+        backwashNoise.start(now + 4.5);
+        backwashNoise.stop(now + totalKineticDur + 0.1);
+
         setTimeout(() => {
             try {
-                waveNoise.disconnect();
-                waveFilter.disconnect();
-                waveGain.disconnect();
                 subSwell.disconnect();
                 subGain.disconnect();
+                surfNoise.disconnect();
+                surfFilter.disconnect();
+                surfGain.disconnect();
+                foamNoise.disconnect();
+                foamFilter.disconnect();
+                foamGain.disconnect();
+                backwashNoise.disconnect();
+                backwashFilter.disconnect();
+                backwashGain.disconnect();
                 if (panner) panner.disconnect();
                 master.disconnect();
             } catch (_) {}
