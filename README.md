@@ -6,6 +6,19 @@ Type any message or pick an emoji, and watch it materialize into thousands of lu
 
 ---
 
+## 🛠️ Tech Stack
+
+- **Three.js** — 3D scene graph, camera, and GPU-accelerated particle rendering
+- **GLSL Vertex Shaders** — hardware-accelerated per-particle styling and motion
+- **Web Workers** — multi-threaded physics fallback with double-buffered slots
+- **Web Audio API** — procedural audio synthesis (ocean waves, harmonics)
+- **Tailwind CSS v4** — utility-first UI styling with custom theme tokens
+- **Vite** — fast dev server and production builds
+- **Playwright** — end-to-end smoke, performance, and interaction tests
+- **GitHub Pages** — static deployment of the built `dist/`
+
+---
+
 ## ✨ Features
 
 - **⚡ Multi-Style Particle Kinematics**:
