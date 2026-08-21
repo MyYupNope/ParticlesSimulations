@@ -777,6 +777,7 @@ const state = {
     activeImage: null,
     imageName: '',
     activePreset: null,  // Tracks which preset chip is currently selected
+    lastRandomPreset: null, // Random preset picked by dbl-tap/Space shortcuts
     activeEmoji: null,   // Set when an emoji is picked from the list; cleared by typing
     lastEmoji: null,     // Remembered last picked emoji, restored when returning to Emoji mode
     lastImage: null,     // Remembered last uploaded image, restored when returning to Image mode
@@ -2411,6 +2412,12 @@ function triggerExplosion(force = false) {
     physics.explosionStartTime = render.clock.getElapsedTime();
     setAnimationControlsDisabled(true);
 
+    // Surface which animation is running in the context line, whichever way it
+    // was sparked (preset chip, dbl-tap, or Space).
+    const presetName = state.activePreset || state.lastRandomPreset;
+    const preset = presetName && CONFIG.presets[presetName] ? CONFIG.presets[presetName] : null;
+    updateContextLine(preset && preset.description ? preset.description : contextForMode(state.messageMode));
+
     if (state.motionStyle === 0 || state.motionStyle === -1) {
         flashImpact();
     }
@@ -2509,6 +2516,7 @@ function applyActiveOrRandomPreset() {
     const namedPresets = Object.keys(CONFIG.presets).filter(k => k !== 'DEFAULT');
     const pick = namedPresets[Math.floor(Math.random() * namedPresets.length)];
     applyPresetPhysics(CONFIG.presets[pick]);
+    state.lastRandomPreset = pick;
 }
 
 function selectTheme(themeName, shouldPush = true) {

@@ -101,3 +101,38 @@ test('emoji sculpture is maximized within the stage margins like text', async ({
     expect(m.boxHpx).toBeLessThanOrEqual(m.availH + 1);
     expect(Math.max(m.boxWpx / m.availW, m.boxHpx / m.availH)).toBeGreaterThan(0.9);
 });
+
+test('Space-triggered explosion surfaces the animation info in the context line', async ({ page }) => {
+    await openPage(page, 1280, 720);
+
+    // Default context is the Text-mode hint.
+    const defaultLine = await page.$eval('#context-line', el => el.textContent);
+    expect(defaultLine).toContain('Type a message');
+
+    // Space sparks a random preset: the context line must show its description.
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === true, null, { timeout: 3000 });
+    const line = await page.$eval('#context-line', el => el.textContent);
+    expect(line.trim().length).toBeGreaterThan(0);
+    expect(line).not.toContain('Type a message');
+
+    // After the animation finishes the hint returns.
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === false, null, { timeout: 15000 });
+    const lineAfter = await page.$eval('#context-line', el => el.textContent);
+    expect(lineAfter).toContain('Type a message');
+});
+
+test('dbl-tap explosion surfaces the animation info in the context line', async ({ page }) => {
+    await openPage(page, 1280, 720);
+
+    // Double-click (the desktop "dbl-tap" analogue) on the stage sparks a random preset.
+    await page.dblclick('#stage');
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === true, null, { timeout: 3000 });
+    const line = await page.$eval('#context-line', el => el.textContent);
+    expect(line.trim().length).toBeGreaterThan(0);
+    expect(line).not.toContain('Type a message');
+
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === false, null, { timeout: 15000 });
+    const lineAfter = await page.$eval('#context-line', el => el.textContent);
+    expect(lineAfter).toContain('Type a message');
+});
