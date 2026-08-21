@@ -16,19 +16,17 @@ async function openPage(page, width, height, query = '/') {
 async function stageInfo(page) {
     return page.evaluate(() => {
         const stage = document.getElementById('stage').getBoundingClientRect();
-        const panel = document.getElementById('control-panel').getBoundingClientRect();
         const canvas = document.querySelector('canvas').getBoundingClientRect();
         const cam = window.__artzDebug._render().camera;
         return {
             stage: { left: stage.left, top: stage.top, width: stage.width, height: stage.height },
-            panel: { left: panel.left, top: panel.top, right: panel.right, centerX: panel.left + panel.width / 2, width: panel.width },
             canvas: { left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height },
             cam: { left: cam.left, right: cam.right, aspect: cam.aspect }
         };
     });
 }
 
-test('desktop: sidebar docks left, hamburger button is hidden, and sculpture centers in stage', async ({ page }) => {
+test('desktop: full-viewport stage with bottom dock, collapse toggle, and dismissible hint', async ({ page }) => {
     const W = 1280, H = 720;
     await openPage(page, W, H);
 
@@ -37,22 +35,39 @@ test('desktop: sidebar docks left, hamburger button is hidden, and sculpture cen
     // Hamburger button is hidden on desktop.
     expect(await page.locator('#menu-toggle-btn').isVisible()).toBe(false);
 
-    // Menu is a flush sidebar on the left edge.
-    expect(info.panel.right).toBeLessThan(W / 2);
-    expect(info.panel.top).toBeCloseTo(0, 0);
-    expect(info.panel.left).toBeCloseTo(0, 0);
+    // Stage and canvas cover the full viewport (no reserved menu space).
+    expect(info.stage.left).toBe(0);
+    expect(info.stage.top).toBe(0);
+    expect(info.stage.width).toBeCloseTo(W, 0);
+    expect(info.stage.height).toBeCloseTo(H, 0);
+    expect(info.canvas.left).toBe(0);
+    expect(info.canvas.width).toBeCloseTo(W, 0);
 
-    // Stage (and canvas) start right of the sidebar (320px) and fill the rest.
-    expect(info.stage.left).toBeGreaterThan(300);
-    expect(info.stage.left).toBeLessThan(400);
-    expect(info.canvas.left).toBeGreaterThan(300);
-    expect(info.stage.width).toBeCloseTo(W - info.stage.left, 0);
-
-    // Auto-fit zoom keeps the whole message visible in the narrower stage.
+    // Auto-fit zoom keeps the whole message visible.
     expect(info.cam.right).toBeGreaterThan(41);
 
+    // Bottom dock is visible, horizontally centered, and hugging the bottom.
+    const dock = page.locator('#dock');
+    await expect(dock).toBeVisible();
+    const dockBox = await dock.boundingBox();
+    expect(dockBox.x).toBeGreaterThan(W / 2 - dockBox.width / 2 - 5);
+    expect(dockBox.x).toBeLessThan(W / 2 - dockBox.width / 2 + 5);
+    expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(H - 5);
+
+    // Dock collapse toggle hides the control body and flips back.
+    await page.click('#dock-toggle-btn');
+    await expect(dock).toHaveClass(/collapsed/);
+    await page.click('#dock-toggle-btn');
+    await expect(dock).not.toHaveClass(/collapsed/);
+
+    // First-visit hint is visible and dismisses.
+    const hint = page.locator('#hint');
+    await expect(hint).toBeVisible();
+    await page.click('#hint-dismiss');
+    await expect(hint).toHaveClass(/dismissed/);
+
     // Pointer at the stage center maps to the world origin.
-    await page.mouse.move(info.stage.left + info.stage.width / 2, info.stage.top + info.stage.height / 2);
+    await page.mouse.move(W / 2, H / 2);
     const u = await page.waitForFunction(() => {
         const v = window.__artzDebug._render().particles.material.uniforms.uMouse.value;
         return Math.abs(v.x) < 0.01 && Math.abs(v.y) < 0.01;
@@ -64,13 +79,13 @@ test('desktop: sidebar docks left, hamburger button is hidden, and sculpture cen
     expect(Math.abs(u.y)).toBeLessThan(0.01);
 });
 
-test('mobile: hamburger menu toggles hidden slide-out sidebar drawer and stage covers full viewport', async ({ page }) => {
+test('mobile: hamburger drawer with 1s auto-close after selection and always-visible input bar', async ({ page }) => {
     const W = 390, H = 844;
     await openPage(page, W, H);
 
     const info = await stageInfo(page);
 
-    // Stage/canvas cover the full viewport (no reserved menu space).
+    // Stage/canvas cover the full viewport.
     expect(info.stage.left).toBe(0);
     expect(info.stage.top).toBe(0);
     expect(info.stage.width).toBeCloseTo(W, 0);
@@ -82,32 +97,33 @@ test('mobile: hamburger menu toggles hidden slide-out sidebar drawer and stage c
     await expect(toggleBtn).toBeVisible();
     expect(await toggleBtn.getAttribute('aria-expanded')).toBe('false');
 
-    // Sidebar panel is closed / off-screen initially.
-    const panel = page.locator('#control-panel');
-    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
+    // Always-visible message input bar at the bottom.
+    await expect(page.locator('#input-bar')).toBeVisible();
+    await expect(page.locator('#mobile-text-input')).toBeVisible();
 
-    // Click hamburger button to open drawer.
+    // Drawer is closed / off-screen initially.
+    const drawer = page.locator('#drawer');
+    expect(await drawer.evaluate(el => el.classList.contains('open'))).toBe(false);
+
+    // Open the drawer via the hamburger.
     await toggleBtn.click();
-    await expect(panel).toHaveClass(/open/);
+    await expect(drawer).toHaveClass(/open/);
     expect(await toggleBtn.getAttribute('aria-expanded')).toBe('true');
-    await expect(page.locator('#menu-backdrop')).toHaveClass(/active/);
+    await expect(page.locator('#drawer-backdrop')).toHaveClass(/active/);
 
-    // Click close button inside drawer to close.
-    const closeBtn = page.locator('#menu-close-btn');
-    await closeBtn.click();
-    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
-    expect(await toggleBtn.getAttribute('aria-expanded')).toBe('false');
+    // Selecting a preset auto-closes the drawer after ~1s.
+    await drawer.locator('.preset-chip[data-text="BREEZE"]').click();
+    await expect(drawer).not.toHaveClass(/open/, { timeout: 2500 });
 
     // Open again and close via Escape key.
     await toggleBtn.click();
-    await expect(panel).toHaveClass(/open/);
+    await expect(drawer).toHaveClass(/open/);
     await page.keyboard.press('Escape');
-    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
+    expect(await drawer.evaluate(el => el.classList.contains('open'))).toBe(false);
 
-    // Open again and close by clicking backdrop.
+    // Open again and close by clicking the backdrop.
     await toggleBtn.click();
-    await expect(panel).toHaveClass(/open/);
-    await page.locator('#menu-backdrop').click({ position: { x: 350, y: 400 } });
-    expect(await panel.evaluate(el => el.classList.contains('open'))).toBe(false);
+    await expect(drawer).toHaveClass(/open/);
+    await page.locator('#drawer-backdrop').click({ position: { x: 350, y: 400 } });
+    expect(await drawer.evaluate(el => el.classList.contains('open'))).toBe(false);
 });
-

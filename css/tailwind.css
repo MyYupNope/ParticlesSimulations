@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
-/* Class-based state variants toggled by JS (classList.add/remove). */
 @custom-variant is-active (&.active);
 @custom-variant is-disabled (&.disabled);
 @custom-variant is-warning (&.warning);
 @custom-variant is-danger (&.danger);
 @custom-variant is-show (&.show);
+@custom-variant is-dismissed (&.dismissed);
+@custom-variant is-collapsed (&.collapsed);
 
 @theme {
   --color-bg: #030308;
@@ -17,6 +18,11 @@
   --color-accent-glow: rgba(99, 102, 241, 0.25);
   --color-danger: #ef4444;
   --color-danger-glow: rgba(239, 68, 68, 0.2);
+  --color-success: #22c55e;
+  --color-success-glow: rgba(34, 197, 94, 0.2);
+  --color-glass: rgba(255, 255, 255, 0.06);
+  --color-glass-strong: rgba(12, 12, 24, 0.72);
+  --color-glass-border: rgba(255, 255, 255, 0.10);
   --font-sans: 'Outfit', sans-serif;
   --font-mono: 'Fira Code', monospace;
 }
@@ -24,87 +30,304 @@
 /* ── Base ─────────────────────────────── */
 html,
 body {
-    height: 100%;
+  height: 100%;
 }
 
 body {
-    margin: 0;
-    overflow: hidden;
-    background-color: var(--color-bg);
-    color: var(--color-text-primary);
-    font-family: var(--font-sans);
-    touch-action: none;
-    user-select: none;
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  touch-action: none;
+  user-select: none;
 }
 
-/* Canvas fills the stage */
+/* ── Glass shared surfaces ────────────── */
+.glass-dock {
+  background: var(--color-glass-strong);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.glass-drawer {
+  background: rgba(10, 10, 24, 0.94);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border-right: 1px solid var(--color-glass-border);
+  box-shadow: 15px 0 50px rgba(0, 0, 0, 0.7), 0 0 30px var(--color-accent-glow);
+}
+
+.glass-chip {
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--color-glass-border);
+  color: var(--color-text-primary);
+}
+.glass-input:focus {
+  border-color: var(--color-accent);
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.glass-inputbar {
+  background: rgba(8, 8, 20, 0.88);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-top: 1px solid var(--color-glass-border);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Chip buttons (message tabs, preset chips, action buttons) ── */
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  background: var(--color-glass);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.chip-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 14px var(--color-accent-glow);
+}
+.chip-btn.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 14px var(--color-accent-glow);
+}
+.chip-btn.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+}
+
+/* ── Emoji chips ──────────────────────── */
+.emoji-chip {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  background: var(--color-glass);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.emoji-chip:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--color-accent);
+  transform: scale(1.06);
+}
+.emoji-chip:active {
+  transform: scale(0.94);
+}
+.emoji-chip.active {
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.45);
+}
+
+/* ── Preset chips ─────────────────────── */
+.preset-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  background: var(--color-glass);
+  color: var(--color-text-secondary);
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.preset-chip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: rgba(99, 102, 241, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 0 14px var(--color-accent-glow);
+}
+.preset-chip:active {
+  transform: translateY(0);
+}
+.preset-chip.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 16px var(--color-accent-glow);
+}
+.preset-chip.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+}
+.preset-chip.active.disabled {
+  opacity: 0.85;
+}
+
+/* ── Theme swatches ───────────────────── */
+.theme-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.25s ease;
+  position: relative;
+}
+.theme-swatch:hover {
+  transform: scale(1.12);
+}
+.theme-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.35);
+  transform: scale(1.08);
+}
+.theme-swatch[data-theme="ember"] {
+  background: linear-gradient(135deg, #f97316, #ef4444, #7c2d12);
+}
+.theme-swatch[data-theme="arctic"] {
+  background: linear-gradient(135deg, #38bdf8, #818cf8, #0ea5e9);
+}
+.theme-swatch[data-theme="toxic"] {
+  background: linear-gradient(135deg, #a3e635, #22c55e, #065f46);
+}
+.theme-swatch[data-theme="neon"] {
+  background: linear-gradient(135deg, #f472b6, #ec4899, #7c3aed);
+}
+.theme-swatch[data-theme="sakura"] {
+  background: linear-gradient(135deg, #fda4af, #f43f5e, #fbbf24);
+}
+
+/* ── Toast variants ───────────────────── */
+#toast.info {
+  background: var(--color-glass-strong);
+  border: 1px solid var(--color-glass-border);
+  color: var(--color-text-primary);
+}
+#toast.success {
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #bbf7d0;
+  box-shadow: 0 8px 24px var(--color-success-glow);
+}
+#toast.error {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+  box-shadow: 0 8px 24px var(--color-danger-glow);
+}
+
+/* ── Canvas fills the stage ───────────── */
 #stage canvas {
-    display: block;
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1;
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
 }
 
-/* ── Mobile drawer slide (JS toggles .open / .active) ──
-   Kept out of Tailwind to avoid v4's native `translate`-property
-   transform internals. */
+/* ── Dock collapsed state ─────────────── */
+#dock.collapsed .dock-body {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin: 0;
+  gap: 0;
+}
+.dock-body {
+  max-height: 600px;
+  opacity: 1;
+  transition: max-height 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, gap 0.4s ease;
+}
+#dock.collapsed .dock-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Mobile drawer slide ──────────────── */
 @media (max-width: 767px) {
-    #control-panel {
-        translate: -105% 0;
-        background: rgba(10, 10, 20, 0.92);
-        transition: translate 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
-    }
-
-    #control-panel.open {
-        translate: 0 0;
-        box-shadow: 15px 0 50px rgba(0, 0, 0, 0.8), 0 0 30px var(--color-accent-glow);
-    }
-
-    #menu-backdrop {
-        opacity: 0;
-        pointer-events: none;
-    }
-
-    #menu-backdrop.active {
-        opacity: 1;
-        pointer-events: auto;
-    }
+  #drawer {
+    translate: -105% 0;
+    transition: translate 0.38s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.38s ease;
+  }
+  #drawer.open {
+    translate: 0 0;
+    box-shadow: 18px 0 60px rgba(0, 0, 0, 0.8), 0 0 35px var(--color-accent-glow);
+  }
+  #drawer-backdrop {
+    opacity: 0;
+    pointer-events: none;
+  }
+  #drawer-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
-@media (min-width: 768px) {
-    #control-panel {
-        translate: 0 0;
-    }
+/* ── Custom scrollbar (drawer / dock) ─── */
+#drawer::-webkit-scrollbar,
+#dock::-webkit-scrollbar {
+  width: 5px;
 }
-
-/* ── Custom scrollbar (sidebar) ── */
-#control-panel::-webkit-scrollbar {
-    width: 5px;
+#drawer::-webkit-scrollbar-track,
+#dock::-webkit-scrollbar-track {
+  background: transparent;
 }
-#control-panel::-webkit-scrollbar-track {
-    background: transparent;
+#drawer::-webkit-scrollbar-thumb,
+#dock::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
 }
-#control-panel::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-}
-#control-panel::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.25);
+#drawer::-webkit-scrollbar-thumb:hover,
+#dock::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* ── Select custom arrow + option theming ── */
 select {
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: calc(100% - 14px) center;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: calc(100% - 14px) center;
 }
 
 select option {
-    background: #0d0d18;
-    color: var(--color-text-primary);
-    padding: 10px;
+  background: #0d0d18;
+  color: var(--color-text-primary);
+  padding: 10px;
 }

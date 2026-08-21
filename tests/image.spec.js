@@ -65,35 +65,42 @@ async function openPage(page, query = '/') {
     });
 }
 
-test('Message offers Text and Image options; emoji row lives under the text field', async ({ page }) => {
+test('Message offers Text, Emoji and Image types with contextual follow-ups', async ({ page }) => {
     await openPage(page);
 
-    const tabs = await page.$$eval('.message-option', els => els.map(e => e.getAttribute('data-message-mode')));
-    expect(tabs).toEqual(['text', 'image']);
+    const tabs = await page.$$eval('#dock .message-option', els => els.map(e => e.getAttribute('data-message-mode')));
+    expect(tabs).toEqual(['text', 'emoji', 'image']);
 
-    // Text is the default option: its field and emoji quick-picks are visible.
-    expect(await page.$eval('.message-option.active', el => el.getAttribute('data-message-mode'))).toBe('text');
+    // Text is the default type: its text area is visible; emoji roster and image
+    // upload stay hidden until their type is selected.
+    expect(await page.$eval('#dock .message-option.active', el => el.getAttribute('data-message-mode'))).toBe('text');
     await expect(page.locator('#text-input')).toBeVisible();
-    await expect(page.locator('#emoji-row')).toBeVisible();
-    await expect(page.locator('#image-message-mode')).toBeHidden();
+    await expect(page.locator('#dock .emoji-row')).toBeHidden();
+    await expect(page.locator('#dock .image-message-mode')).toBeHidden();
 
-    // Switching to Image hides the text field/emojis and reveals the upload.
-    await page.click('.message-option[data-message-mode="image"]');
-    expect(await page.$eval('.message-option.active', el => el.getAttribute('data-message-mode'))).toBe('image');
-    await expect(page.locator('#text-message-mode')).toBeHidden();
-    await expect(page.locator('.image-upload-button')).toBeVisible();
-    await expect(page.locator('#image-name')).toHaveText('No file chosen');
-    const uploadButton = await page.locator('.image-upload-button').boundingBox();
-    const imageName = await page.locator('#image-name').boundingBox();
+    // Emoji type reveals the roster of pre-selected emojis.
+    await page.click('#dock .message-option[data-message-mode="emoji"]');
+    expect(await page.$eval('#dock .message-option.active', el => el.getAttribute('data-message-mode'))).toBe('emoji');
+    await expect(page.locator('#dock .emoji-row')).toBeVisible();
+    await expect(page.locator('#text-input')).toBeHidden();
+
+    // Image type hides the text area/emojis and reveals the upload.
+    await page.click('#dock .message-option[data-message-mode="image"]');
+    expect(await page.$eval('#dock .message-option.active', el => el.getAttribute('data-message-mode'))).toBe('image');
+    await expect(page.locator('#text-input')).toBeHidden();
+    await expect(page.locator('#dock .image-upload-button')).toBeVisible();
+    await expect(page.locator('#dock .image-name')).toHaveText('No file chosen');
+    const uploadButton = await page.locator('#dock .image-upload-button').boundingBox();
+    const imageName = await page.locator('#dock .image-name').boundingBox();
     expect(imageName.x).toBeGreaterThan(uploadButton.x + uploadButton.width);
     const buttonCenterY = uploadButton.y + uploadButton.height / 2;
     const nameCenterY = imageName.y + imageName.height / 2;
     expect(Math.abs(nameCenterY - buttonCenterY)).toBeLessThan(4);
 
     // And back to Text.
-    await page.click('.message-option[data-message-mode="text"]');
+    await page.click('#dock .message-option[data-message-mode="text"]');
     await expect(page.locator('#text-input')).toBeVisible();
-    await expect(page.locator('#image-message-mode')).toBeHidden();
+    await expect(page.locator('#dock .image-message-mode')).toBeHidden();
 });
 
 test('uploading an image turns it into a source-colored particle sculpture', async ({ page }) => {
@@ -101,7 +108,7 @@ test('uploading an image turns it into a source-colored particle sculpture', asy
     page.on('pageerror', (e) => errors.push(String(e)));
 
     await openPage(page);
-    await page.click('.message-option[data-message-mode="image"]');
+    await page.click('#dock .message-option[data-message-mode="image"]');
 
     await page.locator('#image-input').setInputFiles({
         name: 'half-red.png',
@@ -110,7 +117,7 @@ test('uploading an image turns it into a source-colored particle sculpture', asy
     });
 
     // The rebuild rasterizes the image (hundreds of particles, not text density).
-    await page.waitForFunction(() => document.getElementById('image-name')?.textContent === 'half-red.png');
+    await page.waitForFunction(() => document.querySelector('#dock .image-name')?.textContent === 'half-red.png');
     await page.waitForFunction(() => window.__artzDebug._render().particles.material.uniforms.uEmojiMode.value === 1);
     const result = await page.evaluate(() => {
         const render = window.__artzDebug._render();
@@ -126,8 +133,8 @@ test('uploading an image turns it into a source-colored particle sculpture', asy
             emojiMode: render.particles.material.uniforms.uEmojiMode.value,
             red,
             white,
-            mode: document.querySelector('.message-option.active').getAttribute('data-message-mode'),
-            imageName: document.getElementById('image-name').textContent
+            mode: document.querySelector('#dock .message-option.active').getAttribute('data-message-mode'),
+            imageName: document.querySelector('#dock .image-name').textContent
         };
     });
 
@@ -142,7 +149,7 @@ test('uploading an image turns it into a source-colored particle sculpture', asy
 });
 
 async function uploadSquare(page) {
-    await page.click('.message-option[data-message-mode="image"]');
+    await page.click('#dock .message-option[data-message-mode="image"]');
     await page.locator('#image-input').setInputFiles({
         name: 'square.png',
         mimeType: 'image/png',
@@ -176,14 +183,17 @@ test('uploaded image zooms out to clear the menu and bottom instructions', async
         const halfBox = 40;
         const padX = Math.min(120, stage.width * 0.35);
         const padY = Math.min(120, stage.height * 0.35);
-        const zByHeight = halfBox * stage.height / (tanHalf * Math.max(stage.height - 2 * padY, 1));
+        const dock = document.getElementById('dock');
+        const dockH = dock ? dock.getBoundingClientRect().height : 0;
+        const zByHeight = halfBox * stage.height / (tanHalf * Math.max(stage.height - 2 * padY - dockH, 1));
         const zByWidth = halfBox * stage.height / (tanHalf * Math.max(stage.width - 2 * padX, 1));
         return {
             z: cam.position.z,
             targetZ: r.targetZ,
             expectedZ: Math.min(120, Math.max(zByHeight, zByWidth, 10)),
             stageWidth: stage.width,
-            stageHeight: stage.height
+            stageHeight: stage.height,
+            dockH
         };
     });
 

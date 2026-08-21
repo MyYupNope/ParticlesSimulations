@@ -34,7 +34,7 @@ test('screenshot capture produces a PNG download', async ({ page }) => {
     await waitForRender(page);
 
     const downloadPromise = page.waitForEvent('download');
-    await page.click('#capture-btn');
+    await page.click('#dock .capture-btn');
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('.png');
 });

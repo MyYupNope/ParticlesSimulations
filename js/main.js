@@ -181,6 +181,7 @@ const CONFIG = {
     // (Tornado), 2 = coherent wind gust (Breeze), 3 = crisp starburst rays (Kinetic).
     presets: {
         KINETIC: {
+            description: 'A 3D surf wave rolls through your message — luminous crest, deep blue troughs.',
             expansionDuration: 3.75,
             contractionDuration: 3.75,
             explosionMaxDistMultiplier: 22.0,
@@ -197,6 +198,7 @@ const CONFIG = {
             soundType: 'sine'
         },
         TORNADO: {
+            description: 'A four-phase vortex funnel — particles accrete, spiral upward, then dissolve.',
             expansionDuration: 3.5,
             vortexDuration: 4.5,
             equilibriumDuration: 3.5,
@@ -225,6 +227,7 @@ const CONFIG = {
             soundType: 'sawtooth'
         },
                                                                         BREEZE: {
+            description: 'A wind field bends, rolls and disperses your message like leaves in a gust.',
             expansionDuration: 1.0,
             groundPauseDuration: 2.0,
             liftDuration: 3.6,
@@ -246,6 +249,7 @@ const CONFIG = {
             soundType: 'sine'
         },
         EXPLODE: {
+            description: 'A volumetric blast — particles burst outward, hang in the air, then rush home.',
             expansionDuration: 1.2,
             driftDuration: 3.0,
             contractionDuration: 2.0,
@@ -932,6 +936,7 @@ const interaction = {
     inputDebounceTimer: null,
     toastTimer: null,
     flashTimer: null,
+    drawerCloseTimer: null,
     isDragging: false,
     prevMouseX: 0,
     prevMouseY: 0,
@@ -998,12 +1003,17 @@ const uniforms = {
 };
 
 let breezeSeqCounter = 0;
+let statusFpsEl = null;
+let fpsFrames = 0;
+let fpsLastUpdate = 0;
 
 // ─────────────────────────────────────────────
-function showToast(message) {
+function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
     if (!toast) return;
     toast.textContent = message;
+    toast.classList.remove('info', 'success', 'error');
+    toast.classList.add(type === 'success' || type === 'error' ? type : 'info');
     toast.classList.add('show');
     clearTimeout(interaction.toastTimer);
     interaction.toastTimer = setTimeout(() => {
@@ -1545,9 +1555,9 @@ async function setupParticles(text, shouldScatter = false) {
 
     // Emojis picked from the list and uploaded images use their source pixels;
     // anything typed or loaded as regular text keeps the standard text path.
-    const isEmojiMessage = state.messageMode === 'text'
-        && state.activeEmoji === text
-        && CONFIG.emojiOptions.includes(text);
+    const isEmojiMessage = state.messageMode === 'emoji'
+        && state.activeEmoji
+        && CONFIG.emojiOptions.includes(state.activeEmoji);
     const isImageMessage = state.messageMode === 'image' && !!state.activeImage;
     const emojiData = isEmojiMessage ? sampleEmojiPoints(text) : null;
     const imageData = isImageMessage ? sampleImagePoints(state.activeImage) : null;
@@ -1555,7 +1565,7 @@ async function setupParticles(text, shouldScatter = false) {
     const isSourceMessage = !!sourceData;
     const points = sourceData ? sourceData.flat : (isImageMessage ? null : sampleTextPoints(text));
     if (!points) {
-        showToast(isImageMessage ? 'The image has no visible pixels!' : 'Text must contain at least one visible character!');
+        showToast(isImageMessage ? 'The image has no visible pixels!' : 'Text must contain at least one visible character!', 'error');
         return;
     }
 
@@ -2502,8 +2512,11 @@ function selectTheme(themeName, shouldPush = true) {
     uniforms.uHeatWarm.value.set(...theme.warm);
     uniforms.uHeatCold.value.set(...theme.cold);
 
-    const themeSelect = document.getElementById('theme-select');
-    if (themeSelect) themeSelect.value = themeName;
+    document.querySelectorAll('.theme-swatch').forEach(swatch => {
+        const on = swatch.getAttribute('data-theme') === themeName;
+        swatch.classList.toggle('active', on);
+        swatch.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
 
     updateURLParams(state.currentText, state.currentTheme, state.currentFont, shouldPush);
     announceToScreenReader(`Theme changed to ${themeName}`);
@@ -2511,8 +2524,9 @@ function selectTheme(themeName, shouldPush = true) {
 
 async function selectFont(fontName, shouldPush = true, shouldScatter = false) {
     state.currentFont = fontName;
-    const fontSelect = document.getElementById('font-select');
-    if (fontSelect) fontSelect.value = fontName;
+    document.querySelectorAll('#font-select, #drawer-font-select').forEach(sel => {
+        sel.value = fontName;
+    });
 
     if (state.messageMode !== 'text') {
         state.messageMode = 'text';
@@ -2540,20 +2554,22 @@ async function updateText(text, shouldPush = true) {
 }
 
 function updateCharCounter(text) {
-    const counter = document.getElementById('char-counter');
-    if (!counter) return;
+    const counters = document.querySelectorAll('.char-counter');
+    if (!counters.length) return;
 
     // Count Unicode code points so a single emoji reads as 1/25 (its UTF-16 pair
     // would otherwise count as 2).
     const len = [...text].length;
-    counter.textContent = `${len}/25`;
+    counters.forEach(counter => {
+        counter.textContent = `${len}/25`;
 
-    counter.classList.remove('warning', 'danger');
-    if (len >= 25) {
-        counter.classList.add('danger');
-    } else if (len >= 20) {
-        counter.classList.add('warning');
-    }
+        counter.classList.remove('warning', 'danger');
+        if (len >= 25) {
+            counter.classList.add('danger');
+        } else if (len >= 20) {
+            counter.classList.add('warning');
+        }
+    });
 }
 
 // Set explosion custom physics + sound parameters per preset
@@ -2569,8 +2585,12 @@ async function applyPresetExplosion(presetName, shouldScatter = false) {
 // ─────────────────────────────────────────────
 // Pointer & Gesture Handlers
 // ─────────────────────────────────────────────
+// Any pointer/touch/double-click that starts on UI chrome must not drive the canvas.
+const UI_GUARD_SELECTOR = '#drawer, #menu-toggle-btn, #drawer-backdrop, #dock, #topbar, #input-bar, #hint, #toast';
+const isUIEvent = (e) => !!e.target.closest(UI_GUARD_SELECTOR);
+
 function onPointerDown(e) {
-    if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
+    if (isUIEvent(e)) return;
 
     // Desktop mouse drag rotation start
     if (e.pointerType === 'mouse') {
@@ -2595,7 +2615,7 @@ function onPointerDown(e) {
 }
 
 function onTouchStart(e) {
-    if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
+    if (isUIEvent(e)) return;
     if (e.touches.length === 1) {
         updateMouse(e.touches[0].clientX, e.touches[0].clientY);
     } else if (e.touches.length === 2) {
@@ -2610,7 +2630,7 @@ function onTouchStart(e) {
 }
 
 function onTouchMove(e) {
-    if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
+    if (isUIEvent(e)) return;
     e.preventDefault();
 
     if (e.touches.length === 1) {
@@ -2670,9 +2690,9 @@ function updateStageLayout() {
     uniforms.uPixelRatio.value = dpr;
 
     // Auto-zoom by message type, until the user zooms manually: emojis render at
-    // the farthest zoom (smallest display), text fills most of the desktop stage,
-    // and uploaded images are framed to fit the whole square in the stage.
-    if (render.autoFit && stage.getBoundingClientRect().left > 0) {
+    // the farthest zoom (smallest display), text fills most of the stage, and
+    // uploaded images are framed to fit the whole square in the stage.
+    if (render.autoFit) {
         if (state.messageMode === 'image' && state.activeImage) {
             render.targetZ = imageAutoZoom(w, h);
         } else if (state.activeEmoji && CONFIG.emojiOptions.includes(state.currentText)) {
@@ -2681,6 +2701,23 @@ function updateStageLayout() {
             render.targetZ = CONFIG.textAutoZoom;
         }
     }
+}
+
+// Height of the bottom UI chrome that overlays the stage (desktop dock or the
+// mobile input bar). Framing uses this as bottom clearance so the sculpture is
+// never hidden behind the controls.
+function bottomChromeHeight() {
+    const dock = document.getElementById('dock');
+    if (dock) {
+        const rect = dock.getBoundingClientRect();
+        if (rect.height > 0) return rect.height;
+    }
+    const inputBar = document.getElementById('input-bar');
+    if (inputBar) {
+        const rect = inputBar.getBoundingClientRect();
+        if (rect.height > 0) return rect.height;
+    }
+    return 0;
 }
 
 // Frame the square 80-unit image raster inside the stage with explicit clearance
@@ -2692,11 +2729,14 @@ function updateStageLayout() {
 function emojiAutoZoom(stageW, stageH) {
     const tanHalf = Math.tan(CONFIG.cameraAngleDeg * Math.PI / 360);
     const halfBox = CONFIG.targetWorldWidth / 2;
-    // 16% margins around the emoji so it occupies ~68% of the stage height/width
+    // 16% margins around the emoji so it occupies ~68% of the stage height/width.
+    // The bottom clearance grows with the dock/input-bar height so the sculpture
+    // stays visible above the controls.
+    const bottomPad = Math.max(stageH * 0.16, 80) + bottomChromeHeight();
     const padX = Math.max(stageW * 0.16, 80);
     const padY = Math.max(stageH * 0.16, 80);
     const availW = Math.max(stageW - 2 * padX, 1);
-    const availH = Math.max(stageH - 2 * padY, 1);
+    const availH = Math.max(stageH - padY - bottomPad, 1);
     const zByHeight = halfBox * stageH / (tanHalf * availH);
     const zByWidth = halfBox * stageH / (tanHalf * availW);
     return Math.min(CONFIG.zoomMax, Math.max(zByHeight, zByWidth, CONFIG.zoomMin));
@@ -2706,12 +2746,22 @@ function imageAutoZoom(stageW, stageH) {
     const tanHalf = Math.tan(CONFIG.cameraAngleDeg * Math.PI / 360);
     const halfBox = CONFIG.targetWorldWidth / 2;
     const padX = Math.min(CONFIG.imageFitPadX, stageW * 0.35);
-    const padY = Math.min(CONFIG.imageFitPadY, stageH * 0.35);
+    const padYTop = Math.min(CONFIG.imageFitPadY, stageH * 0.35);
+    const padYBottom = Math.min(CONFIG.imageFitPadY, stageH * 0.35) + bottomChromeHeight();
     const availW = Math.max(stageW - 2 * padX, 1);
-    const availH = Math.max(stageH - 2 * padY, 1);
+    const availH = Math.max(stageH - padYTop - padYBottom, 1);
     const zByHeight = halfBox * stageH / (tanHalf * availH);
     const zByWidth = halfBox * stageH / (tanHalf * availW);
     return Math.min(CONFIG.zoomMax, Math.max(zByHeight, zByWidth, CONFIG.zoomMin));
+}
+
+const CONTEXT_DEFAULT = 'Type a message — your words become thousands of glowing particles.';
+
+// Update the dock's contextual description line.
+function updateContextLine(text) {
+    const line = document.getElementById('context-line');
+    if (!line) return;
+    line.textContent = text;
 }
 
 // Highlight the active preset button, clear others
@@ -2725,6 +2775,8 @@ function setActivePreset(presetName) {
             chip.classList.remove('active');
         }
     });
+    const preset = CONFIG.presets[presetName];
+    updateContextLine(preset && preset.description ? preset.description : CONTEXT_DEFAULT);
 }
 
 // Clear all preset highlights
@@ -2734,6 +2786,7 @@ function clearActivePresets() {
     chips.forEach(chip => {
         chip.classList.remove('active');
     });
+    updateContextLine(CONTEXT_DEFAULT);
 }
 
 // Highlight the picked emoji chip (or clear all when null)
@@ -2744,30 +2797,55 @@ function setEmojiActive(emoji) {
     });
 }
 
-// Toggle the Message Text/Image option tabs and their panels.
+// Toggle the Message type tabs (Text / Emoji / Image) and their follow-up panels.
 function setMessageModeUI(mode) {
-    state.messageMode = mode === 'image' ? 'image' : 'text';
+    const m = (mode === 'emoji' || mode === 'image') ? mode : 'text';
+    state.messageMode = m;
     document.querySelectorAll('.message-option').forEach(btn => {
-        const on = btn.getAttribute('data-message-mode') === state.messageMode;
+        const on = btn.getAttribute('data-message-mode') === m;
         btn.classList.toggle('active', on);
         btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
-    const textPanel = document.getElementById('text-message-mode');
-    const imagePanel = document.getElementById('image-message-mode');
-    if (textPanel) textPanel.hidden = state.messageMode !== 'text';
-    if (imagePanel) imagePanel.hidden = state.messageMode !== 'image';
+    document.querySelectorAll('.text-message-mode').forEach(el => {
+        el.hidden = m !== 'text';
+    });
+    document.querySelectorAll('.emoji-message-mode').forEach(el => {
+        el.hidden = m !== 'emoji';
+    });
+    document.querySelectorAll('.image-message-mode').forEach(el => {
+        el.hidden = m !== 'image';
+    });
+    // On mobile the always-visible bottom bar is the Text follow-up: only show it
+    // while the Text type is active (Emoji/Image use the drawer panels instead).
+    const inputBar = document.getElementById('input-bar');
+    if (inputBar) inputBar.style.display = m === 'text' ? '' : 'none';
 }
 
-// Switch the active Message mode and rebuild the sculpture for the new source.
+// Switch the active Message type and rebuild the sculpture for the new source.
 async function switchMessageMode(mode) {
     setMessageModeUI(mode);
     clearActivePresets();
     resetToDefaultExplosion();
-    if (state.messageMode === 'text') {
-        state.activeEmoji = CONFIG.emojiOptions.includes(state.currentText) ? state.currentText : null;
-        setEmojiActive(state.activeEmoji);
-        await setupParticles(state.currentText, false);
-    } else if (state.activeImage) {
+    if (state.messageMode === 'emoji') {
+        const emoji = state.activeEmoji && CONFIG.emojiOptions.includes(state.activeEmoji)
+            ? state.activeEmoji
+            : (CONFIG.emojiOptions.includes(state.currentText) ? state.currentText : null);
+        if (emoji) {
+            state.activeEmoji = emoji;
+            setEmojiActive(emoji);
+            syncInputValues(emoji);
+            await setupParticles(emoji, false);
+        }
+        // No emoji picked yet — the roster is now visible for the next selection.
+    } else if (state.messageMode === 'image') {
+        if (state.activeImage) {
+            await setupParticles(state.currentText, false);
+        }
+        // No image loaded yet — the upload control is now visible.
+    } else {
+        state.activeEmoji = null;
+        state.activeImage = null;
+        setEmojiActive(null);
         await setupParticles(state.currentText, false);
     }
 }
@@ -2776,55 +2854,71 @@ async function switchMessageMode(mode) {
 function handleImageUpload(file) {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-        showToast('Please choose an image file!');
+        showToast('Please choose an image file!', 'error');
         return;
     }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = async () => {
         URL.revokeObjectURL(url);
+        setMessageModeUI('image');
         state.activeImage = img;
         state.imageName = file.name;
         state.activeEmoji = null;
         setEmojiActive(null);
         clearActivePresets();
         resetToDefaultExplosion();
-        const imageName = document.getElementById('image-name');
+        const imageName = document.querySelector('.image-name');
         if (imageName) imageName.textContent = file.name;
         await setupParticles(state.currentText, false);
         announceToScreenReader(`Image uploaded: ${file.name}`);
     };
     img.onerror = () => {
         URL.revokeObjectURL(url);
-        showToast('Could not read that image!');
+        showToast('Could not read that image!', 'error');
     };
     img.src = url;
 }
 
 // ─────────────────────────────────────────────
-// Mobile Menu Drawer Controls
+// Mobile Drawer Controls
 // ─────────────────────────────────────────────
+// The drawer auto-closes 1s after any selection is made inside it, unless another
+// selection arrives first (the timer resets each time).
+const DRAWER_AUTO_CLOSE_MS = 1000;
+
+function scheduleDrawerAutoClose() {
+    clearTimeout(interaction.drawerCloseTimer);
+    interaction.drawerCloseTimer = setTimeout(closeMobileMenu, DRAWER_AUTO_CLOSE_MS);
+}
+
+function cancelDrawerAutoClose() {
+    clearTimeout(interaction.drawerCloseTimer);
+}
+
 function openMobileMenu() {
-    const panel = document.getElementById('control-panel');
-    const backdrop = document.getElementById('menu-backdrop');
+    const drawer = document.getElementById('drawer');
+    const backdrop = document.getElementById('drawer-backdrop');
     const toggleBtn = document.getElementById('menu-toggle-btn');
-    if (panel) panel.classList.add('open');
+    cancelDrawerAutoClose();
+    if (drawer) drawer.classList.add('open');
     if (backdrop) backdrop.classList.add('active');
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
 }
 
 function closeMobileMenu() {
-    const panel = document.getElementById('control-panel');
-    const backdrop = document.getElementById('menu-backdrop');
+    const drawer = document.getElementById('drawer');
+    const backdrop = document.getElementById('drawer-backdrop');
     const toggleBtn = document.getElementById('menu-toggle-btn');
-    if (panel) panel.classList.remove('open');
+    cancelDrawerAutoClose();
+    if (drawer) drawer.classList.remove('open');
     if (backdrop) backdrop.classList.remove('active');
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
 }
 
 function toggleMobileMenu() {
-    const panel = document.getElementById('control-panel');
-    if (panel && panel.classList.contains('open')) {
+    const drawer = document.getElementById('drawer');
+    if (drawer && drawer.classList.contains('open')) {
         closeMobileMenu();
     } else {
         openMobileMenu();
@@ -2834,14 +2928,115 @@ function toggleMobileMenu() {
 // ─────────────────────────────────────────────
 // UI Setup
 // ─────────────────────────────────────────────
+// Mirror the current message text into every input (desktop dock + mobile bar).
+function syncInputValues(value) {
+    document.querySelectorAll('#text-input, #mobile-text-input').forEach(inp => {
+        inp.value = value;
+    });
+    updateCharCounter(value);
+}
+
+// Shared text-input pipeline (debounced rebuild of the sculpture).
+function handleTextInputValue(raw) {
+    setMessageModeUI('text'); // Typing always means the Text type
+    clearActivePresets(); // Typing clears preset active marks
+    state.activeEmoji = null; // Typing reverts to the regular text path
+    state.activeImage = null; // ... and drops any uploaded image
+    setEmojiActive(null);
+    resetToDefaultExplosion(); // Typing resets preset physics details
+    updateCharCounter(raw);
+    clearTimeout(interaction.inputDebounceTimer);
+    interaction.inputDebounceTimer = setTimeout(async () => {
+        await updateText(raw);
+    }, CONFIG.inputDebounceMs);
+}
+
+// Capture screenshot ([1.4] safe with preserveDrawingBuffer: false because we run
+// in the same tick). Uses toBlob() instead of toDataURL() so PNG encoding runs off
+// the main thread and we avoid allocating a large base64 string (lower peak
+// memory, no UI freeze).
+function captureScreenshot() {
+    render.renderer.render(render.scene, render.camera);
+    render.renderer.domElement.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const name = (state.messageMode === 'image' && state.imageName
+            ? state.imageName
+            : state.currentText).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        link.download = `artz-sculpture-${name || 'kinetic'}.png`;
+        link.href = url;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'image/png');
+}
+
+// 1-Click Share functionality: serialize current state into URL and copy to clipboard
+async function shareSculptureLink() {
+    try {
+        const params = new URLSearchParams();
+        if (state.activeEmoji) {
+            params.set('t', state.activeEmoji);
+        } else if (state.messageMode === 'text' && state.currentText) {
+            params.set('t', state.currentText);
+        }
+        if (state.currentTheme && state.currentTheme !== 'ember') {
+            params.set('theme', state.currentTheme);
+        }
+        if (state.currentFont && state.currentFont !== 'Outfit') {
+            params.set('font', state.currentFont);
+        }
+        if (state.activePreset) {
+            params.set('preset', state.activePreset);
+        }
+        const queryString = params.toString();
+        const shareUrl = `${window.location.origin}${window.location.pathname}${queryString ? '?' + queryString : ''}`;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+        } else {
+            const tempInput = document.createElement('input');
+            tempInput.value = shareUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+        }
+        showToast('Link copied to clipboard!', 'success');
+    } catch (err) {
+        showToast('Could not copy link', 'error');
+    }
+}
+
+// Audio/SFX Mute & Volume toggle
+function toggleAudio() {
+    state.audioEnabled = !state.audioEnabled;
+    document.querySelectorAll('.audio-btn').forEach(btn => {
+        btn.setAttribute('aria-pressed', state.audioEnabled.toString());
+        btn.title = state.audioEnabled ? 'Toggle Sound (Mute/Unmute)' : 'Sound: MUTED (Click to unmute)';
+    });
+    document.querySelectorAll('.audio-icon').forEach(icon => {
+        icon.textContent = state.audioEnabled ? '🔊' : '🔇';
+    });
+    showToast(state.audioEnabled ? '🔊 Sound effects enabled' : '🔇 Sound effects muted');
+}
+
+// First-visit hint: dismiss once, remember the choice.
+function dismissHint() {
+    const hint = document.getElementById('hint');
+    if (hint) hint.classList.add('dismissed');
+    try { localStorage.setItem('artz-hint-seen', '1'); } catch (_) { /* private mode */ }
+}
+
 function setupUI() {
     const textInput = document.getElementById('text-input');
-    const themeSelect = document.getElementById('theme-select');
-    const fontSelect = document.getElementById('font-select');
-    const captureBtn = document.getElementById('capture-btn');
+    const mobileInput = document.getElementById('mobile-text-input');
     const menuToggleBtn = document.getElementById('menu-toggle-btn');
     const menuCloseBtn = document.getElementById('menu-close-btn');
-    const menuBackdrop = document.getElementById('menu-backdrop');
+    const drawerBackdrop = document.getElementById('drawer-backdrop');
+    const drawer = document.getElementById('drawer');
+    const dockToggleBtn = document.getElementById('dock-toggle-btn');
+    const hintDismissBtn = document.getElementById('hint-dismiss');
 
     if (menuToggleBtn) {
         menuToggleBtn.addEventListener('click', () => {
@@ -2855,11 +3050,53 @@ function setupUI() {
         });
     }
 
-    if (menuBackdrop) {
-        menuBackdrop.addEventListener('click', () => {
+    if (drawerBackdrop) {
+        drawerBackdrop.addEventListener('click', () => {
             closeMobileMenu();
         });
     }
+
+    // Any selection inside the drawer schedules its auto-close (timer resets on
+    // each new selection so a quick series of picks keeps it open). Message-type
+    // tab navigation and opening the native font dropdown are not selections.
+    if (drawer) {
+        drawer.addEventListener('click', (e) => {
+            if (e.target.closest('.message-option') || e.target.closest('select')) return;
+            scheduleDrawerAutoClose();
+        });
+        drawer.querySelectorAll('select').forEach(sel => {
+            sel.addEventListener('change', scheduleDrawerAutoClose);
+        });
+    }
+
+    // Dock collapse/expand toggle.
+    if (dockToggleBtn) {
+        dockToggleBtn.addEventListener('click', () => {
+            const dock = document.getElementById('dock');
+            if (!dock) return;
+            const collapsed = dock.classList.toggle('collapsed');
+            dockToggleBtn.setAttribute('aria-expanded', (!collapsed).toString());
+            dockToggleBtn.title = collapsed ? 'Expand controls' : 'Collapse controls';
+        });
+    }
+
+    // First-visit hint.
+    if (hintDismissBtn) {
+        hintDismissBtn.addEventListener('click', dismissHint);
+    }
+    try {
+        if (localStorage.getItem('artz-hint-seen') === '1') dismissHint();
+    } catch (_) { /* private mode */ }
+
+    // Status pill: engine label.
+    statusFpsEl = document.getElementById('status-fps');
+    const statusGpu = document.getElementById('status-gpu');
+    if (statusGpu) {
+        statusGpu.textContent = state.gpuPhysics ? 'GPU' : (physicsWorker ? 'WORKER' : 'CPU');
+    }
+
+    // Context line default.
+    updateContextLine(CONTEXT_DEFAULT);
 
     // Sync state to UI elements
     if (textInput) {
@@ -2867,16 +3104,16 @@ function setupUI() {
         updateCharCounter(state.currentText);
 
         textInput.addEventListener('input', () => {
-            clearActivePresets(); // Typing clears preset active marks
-            state.activeEmoji = null; // Typing reverts to the regular text path
-            state.activeImage = null; // ... and drops any uploaded image
-            setEmojiActive(null);
-            resetToDefaultExplosion(); // Typing resets preset physics details
-            updateCharCounter(textInput.value);
-            clearTimeout(interaction.inputDebounceTimer);
-            interaction.inputDebounceTimer = setTimeout(async () => {
-                await updateText(textInput.value);
-            }, CONFIG.inputDebounceMs);
+            if (mobileInput && mobileInput.value !== textInput.value) mobileInput.value = textInput.value;
+            handleTextInputValue(textInput.value);
+        });
+    }
+
+    if (mobileInput) {
+        mobileInput.value = state.currentText;
+        mobileInput.addEventListener('input', () => {
+            if (textInput && textInput.value !== mobileInput.value) textInput.value = mobileInput.value;
+            handleTextInputValue(mobileInput.value);
         });
     }
 
@@ -2888,109 +3125,44 @@ function setupUI() {
     });
 
     // Image upload: rasterize the chosen file into the particle sculpture
-    const imageInput = document.getElementById('image-input');
-    if (imageInput) {
-        imageInput.addEventListener('change', () => {
-            handleImageUpload(imageInput.files && imageInput.files[0]);
+    document.querySelectorAll('.image-input').forEach(inputEl => {
+        inputEl.addEventListener('change', () => {
+            handleImageUpload(inputEl.files && inputEl.files[0]);
             // Reset the hidden native control so choosing the same file again
-            // still emits change; the visible filename is managed by #image-name.
-            imageInput.value = '';
+            // still emits change; the visible filename is managed by .image-name.
+            inputEl.value = '';
         });
-    }
+    });
 
-    if (themeSelect) {
-        themeSelect.value = state.currentTheme;
-        themeSelect.addEventListener('change', () => {
+    // Theme swatches
+    document.querySelectorAll('.theme-swatch').forEach(swatch => {
+        swatch.addEventListener('click', () => {
             clearActivePresets();
             resetToDefaultExplosion();
-            selectTheme(themeSelect.value);
+            selectTheme(swatch.getAttribute('data-theme'));
         });
-    }
+    });
 
-    if (fontSelect) {
-        fontSelect.value = state.currentFont;
-        fontSelect.addEventListener('change', async () => {
+    // Font selects (desktop dock + mobile drawer)
+    document.querySelectorAll('#font-select, #drawer-font-select').forEach(sel => {
+        sel.value = state.currentFont;
+        sel.addEventListener('change', async () => {
             clearActivePresets();
             resetToDefaultExplosion();
-            await selectFont(fontSelect.value);
+            await selectFont(sel.value);
         });
-    }
+    });
 
-    // Capture functionality ([1.4] safe with preserveDrawingBuffer: false because we run in the same tick).
-    // Uses toBlob() instead of toDataURL() so PNG encoding runs off the main thread and
-    // we avoid allocating a large base64 string (lower peak memory, no UI freeze).
-    if (captureBtn) {
-        captureBtn.addEventListener('click', () => {
-            render.renderer.render(render.scene, render.camera);
-            render.renderer.domElement.toBlob((blob) => {
-                if (!blob) return;
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                const name = (state.messageMode === 'image' && state.imageName
-                    ? state.imageName
-                    : state.currentText).replace(/[^a-z0-9]/gi, '_').toLowerCase();
-                link.download = `artz-sculpture-${name || 'kinetic'}.png`;
-                link.href = url;
-                link.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-            }, 'image/png');
-        });
-    }
-
-    // 1-Click Share functionality: serialize current state into URL and copy to clipboard
-    const shareBtn = document.getElementById('share-btn');
-    if (shareBtn) {
-        shareBtn.addEventListener('click', async () => {
-            try {
-                const params = new URLSearchParams();
-                if (state.activeEmoji) {
-                    params.set('t', state.activeEmoji);
-                } else if (state.messageMode === 'text' && state.currentText) {
-                    params.set('t', state.currentText);
-                }
-                if (state.currentTheme && state.currentTheme !== 'ember') {
-                    params.set('theme', state.currentTheme);
-                }
-                if (state.currentFont && state.currentFont !== 'Outfit') {
-                    params.set('font', state.currentFont);
-                }
-                if (state.activePreset) {
-                    params.set('preset', state.activePreset);
-                }
-                const queryString = params.toString();
-                const shareUrl = `${window.location.origin}${window.location.pathname}${queryString ? '?' + queryString : ''}`;
-                
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(shareUrl);
-                } else {
-                    const tempInput = document.createElement('input');
-                    tempInput.value = shareUrl;
-                    document.body.appendChild(tempInput);
-                    tempInput.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(tempInput);
-                }
-                showToast('🔗 Shareable link copied to clipboard!');
-            } catch (err) {
-                showToast('Could not copy link');
-            }
-        });
-    }
-
-    // Audio/SFX Mute & Volume toggle
-    const audioBtn = document.getElementById('audio-btn');
-    const audioIcon = document.getElementById('audio-icon');
-    if (audioBtn) {
-        audioBtn.addEventListener('click', () => {
-            state.audioEnabled = !state.audioEnabled;
-            audioBtn.setAttribute('aria-pressed', state.audioEnabled.toString());
-            audioBtn.title = state.audioEnabled ? 'Toggle Sound (Mute/Unmute)' : 'Sound: MUTED (Click to unmute)';
-            if (audioIcon) {
-                audioIcon.textContent = state.audioEnabled ? '🔊' : '🔇';
-            }
-            showToast(state.audioEnabled ? '🔊 Sound effects enabled' : '🔇 Sound effects muted');
-        });
-    }
+    // Capture / Share / Audio (each wired for both dock and drawer copies)
+    document.querySelectorAll('.capture-btn').forEach(btn => {
+        btn.addEventListener('click', captureScreenshot);
+    });
+    document.querySelectorAll('.share-btn').forEach(btn => {
+        btn.addEventListener('click', shareSculptureLink);
+    });
+    document.querySelectorAll('.audio-btn').forEach(btn => {
+        btn.addEventListener('click', toggleAudio);
+    });
 
     // Presets Row
     const chips = document.querySelectorAll('.preset-chip');
@@ -2998,11 +3170,11 @@ function setupUI() {
         chip.addEventListener('click', async () => {
             if (physics.explosionStartTime >= 0) return;
             const presetVal = chip.getAttribute('data-text');
-            
+
             // Set custom explosion dynamics and sound properties
             await applyPresetExplosion(presetVal);
             setActivePreset(presetVal); // Highlight the selected preset chip
-            
+
             // Trigger the unique explosion
             triggerExplosion();
         });
@@ -3015,16 +3187,12 @@ function setupUI() {
             const emoji = chip.getAttribute('data-emoji');
             if (!emoji) return;
 
+            setMessageModeUI('emoji');
             clearActivePresets();
             resetToDefaultExplosion();
             state.activeEmoji = emoji;
             setEmojiActive(emoji);
-
-            const textInput = document.getElementById('text-input');
-            if (textInput) {
-                textInput.value = emoji;
-                updateCharCounter(emoji);
-            }
+            syncInputValues(emoji);
 
             // Quiet morph rebuild (no forced explosion) that updates the share URL.
             await updateText(emoji);
@@ -3085,6 +3253,16 @@ function updateAdaptiveQuality(frameMs) {
 function animate() {
     const frameStart = performance.now();
     requestAnimationFrame(animate);
+
+    // Rolling FPS status (refreshed twice a second).
+    fpsFrames++;
+    if (performance.now() - fpsLastUpdate >= 500) {
+        if (statusFpsEl) {
+            statusFpsEl.textContent = `${Math.round(fpsFrames * 1000 / (performance.now() - fpsLastUpdate))} FPS`;
+        }
+        fpsFrames = 0;
+        fpsLastUpdate = performance.now();
+    }
 
     const time = render.clock.getElapsedTime();
     const dt = Math.min(time - render.prevTime, 0.05); // cap at 50ms to prevent browser tab freeze math jumps
@@ -3627,7 +3805,12 @@ async function init() {
     state.currentFont = initialFont;
 
     // A shared URL whose message is a list emoji keeps the high-detail rendering.
-    if (CONFIG.emojiOptions.includes(initialText)) state.activeEmoji = initialText;
+    if (CONFIG.emojiOptions.includes(initialText)) {
+        state.activeEmoji = initialText;
+        state.messageMode = 'emoji';
+    } else {
+        state.messageMode = 'text';
+    }
 
     // Apply initial state & check if text or param matches a preset
     const upperText = initialText.toUpperCase();
@@ -3646,6 +3829,7 @@ async function init() {
         await setupParticles(state.currentText, false);
     }
     setupUI();
+    setMessageModeUI(state.messageMode);
 
     // Event Listeners
     // pointermove only records the latest coordinates; the actual unproject + drag
@@ -3658,6 +3842,14 @@ async function init() {
         };
     });
     window.addEventListener('pointerdown', onPointerDown);
+    // First-visit hint dismisses on the first real canvas interaction (pointer or
+    // rotation/zoom key), not on clicks inside the UI chrome.
+    window.addEventListener('pointerdown', e => {
+        if (!isUIEvent(e)) dismissHint();
+    });
+    window.addEventListener('keydown', e => {
+        if (e.key === ' ' || e.key.startsWith('Arrow') || e.key === '+' || e.key === '-' || e.key === '=') dismissHint();
+    });
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
     window.addEventListener('pointerleave', () => {
@@ -3666,7 +3858,7 @@ async function init() {
         interaction.isDragging = false;
     });
     window.addEventListener('dblclick', e => {
-        if (e.target.closest('#control-panel, #menu-toggle-btn, #menu-backdrop')) return;
+        if (isUIEvent(e)) return;
         if (physics.explosionStartTime >= 0) return;
         applyActiveOrRandomPreset(); // Use active preset or random if none selected
         triggerExplosion();
@@ -3678,8 +3870,8 @@ async function init() {
     
     window.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
-            const controlPanel = document.getElementById('control-panel');
-            if (controlPanel && controlPanel.classList.contains('open')) {
+            const drawer = document.getElementById('drawer');
+            if (drawer && drawer.classList.contains('open')) {
                 closeMobileMenu();
                 return;
             }
@@ -3709,18 +3901,20 @@ async function init() {
         state.currentText = t;
         state.currentTheme = theme;
         state.currentFont = font;
-        state.activeEmoji = CONFIG.emojiOptions.includes(t) ? t : null;
-        setMessageModeUI('text'); // History stores text messages; images are local-only
+        const isEmojiState = CONFIG.emojiOptions.includes(t);
+        state.activeEmoji = isEmojiState ? t : null;
+        setMessageModeUI(isEmojiState ? 'emoji' : 'text'); // History stores text/emoji; images are local-only
+        syncInputValues(t);
 
-        const textInput = document.getElementById('text-input');
-        if (textInput) {
-            textInput.value = t;
-            updateCharCounter(t);
-        }
-
-        // Apply state updates silently to prevent loop recursion
+        // Apply state updates silently to prevent loop recursion. Fonts only apply
+        // to text, so the emoji path rebuilds directly without forcing text mode.
         selectTheme(theme, false);
-        await selectFont(font, false);
+        if (isEmojiState) {
+            setEmojiActive(t);
+            await setupParticles(t, false);
+        } else {
+            await selectFont(font, false);
+        }
 
         const upper = t.toUpperCase();
         if (CONFIG.presets[upper] && upper !== 'DEFAULT') {

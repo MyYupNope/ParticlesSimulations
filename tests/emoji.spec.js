@@ -14,10 +14,12 @@ async function openPage(page, query = '/') {
     await waitForCameraSettle(page);
 }
 
-// Click an emoji chip and wait until the share URL reflects the picked message
-// (updateText pushes ?t= after the rebuild) and the refit zoom has settled.
+// Click the Emoji type tab then an emoji chip, and wait until the share URL
+// reflects the picked message (updateText pushes ?t= after the rebuild) and the
+// refit zoom has settled.
 async function pickEmoji(page, emoji) {
-    await page.click(`.emoji-chip[data-emoji="${emoji}"]`);
+    await page.click('#dock .message-option[data-message-mode="emoji"]');
+    await page.click(`#dock .emoji-chip[data-emoji="${emoji}"]`);
     await page.waitForFunction((e) => {
         return new URLSearchParams(window.location.search).get('t') === e;
     }, emoji);
@@ -37,7 +39,7 @@ test('picking an emoji substitutes the message with a detailed sculpture', async
 
     // The pick fills the MESSAGE field and highlights the chip.
     expect(await page.inputValue('#text-input')).toBe('😀');
-    expect(await page.$eval('.emoji-chip.active', el => el.getAttribute('data-emoji'))).toBe('😀');
+    expect(await page.$eval('#dock .emoji-chip.active', el => el.getAttribute('data-emoji'))).toBe('😀');
 
     // High-detail path yields a dense particle set (vs a few hundred for a 44px
     // text glyph) while staying under the worker cap.
@@ -81,12 +83,14 @@ test('typing after picking reverts to the regular text path', async ({ page }) =
     await openPage(page);
     await pickEmoji(page, '😀');
 
-    // Typing the same emoji chars as text must clear the pick and use the small
-    // text glyph rasterizer (a few thousand particles at most).
+    // Typing after picking returns to the Text type (revealing the text area) and
+    // must clear the pick and use the small text glyph rasterizer (a few thousand
+    // particles at most).
+    await page.click('#dock .message-option[data-message-mode="text"]');
     await page.locator('#text-input').fill('😀');
     await page.waitForTimeout(500);
 
-    expect(await page.$$eval('.emoji-chip.active', els => els.length)).toBe(0);
+    expect(await page.$$eval('#dock .emoji-chip.active', els => els.length)).toBe(0);
     const count = await particleCount(page);
     expect(count).toBeGreaterThan(0);
     expect(count).toBeLessThan(4000);
