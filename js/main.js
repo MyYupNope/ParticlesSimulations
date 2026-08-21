@@ -2412,6 +2412,11 @@ function triggerExplosion(force = false) {
     physics.explosionStartTime = render.clock.getElapsedTime();
     setAnimationControlsDisabled(true);
 
+    // Tuck the options menu away while the animation plays (it returns when the
+    // animation finishes). This runs for every trigger — preset chip, dbl-tap,
+    // multi-tap, or Space — so site sparks behave exactly like menu sparks.
+    closeMenuForAnimation();
+
     // Surface which animation is running in the context line, whichever way it
     // was sparked (preset chip, dbl-tap, or Space).
     const presetName = state.activePreset || state.lastRandomPreset;
@@ -3351,11 +3356,7 @@ function setupUI() {
             await applyPresetExplosion(presetVal);
             setActivePreset(presetVal); // Highlight the selected preset chip
 
-            // Tuck the options menu away while the animation plays (it returns
-            // when the animation finishes).
-            closeMenuForAnimation();
-
-            // Trigger the unique explosion
+            // Trigger the unique explosion (menu tuck/restore is handled inside).
             triggerExplosion();
         });
     });
