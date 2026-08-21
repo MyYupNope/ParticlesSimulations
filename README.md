@@ -8,13 +8,16 @@ Type any message, pick an emoji, or load an image, and watch it materialize into
 
 ## 🛠️ Tech Stack
 
-- **Three.js** — 3D scene graph, camera, and GPU-accelerated particle rendering
-- **GLSL Vertex Shaders** — hardware-accelerated per-particle styling and motion
-- **Web Workers** — multi-threaded physics fallback with double-buffered slots
-- **Web Audio API** — procedural audio synthesis (ocean waves, harmonics)
-- **Tailwind CSS v4** — utility-first UI styling with custom theme tokens
-- **Vite** — fast dev server and production builds
-- **Playwright** — end-to-end smoke, performance, and interaction tests
+The project is a **vanilla JS/HTML** app (no component framework) built around a dual-engine rendering pipeline that keeps 60 FPS at 30k+ particles.
+
+- **Three.js** — 3D scene graph, orthographic camera, and GPU-accelerated particle rendering
+- **GLSL Vertex Shaders** — hardware-accelerated per-particle styling, heat maps, and motion (`js/shaders.js`)
+- **Web Workers** — multi-threaded physics fallback with zero-copy double-buffered `Float32Array` slots (`js/physics.worker.js`)
+- **Shared Math Kernel** — `js/physics-math.js` is the single source of truth for kinematics, used by both the Web Worker and the CPU fallback so trajectories stay identical
+- **Web Audio API** — procedural audio synthesis (ocean waves, tornado howl, wind, explosion boom) (`js/audio.js`)
+- **Tailwind CSS v4** — utility-first UI styling with custom `@theme` tokens and `@custom-variant` state utilities, processed at build time via the `@tailwindcss/vite` plugin
+- **Vite 5** — fast dev server and production builds, with shareable state via URL query params
+- **Playwright** — end-to-end smoke, performance, and interaction tests (14 specs) driven through a `window.__artzDebug` test hook
 - **GitHub Pages** — static deployment of the built `dist/`
 
 ---
