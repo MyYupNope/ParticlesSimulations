@@ -122,6 +122,39 @@ body {
 }
 
 /* ── Emoji chips ──────────────────────── */
+.emoji-row {
+  display: grid;
+  grid-template-columns: repeat(10, 40px);
+  gap: 8px;
+  width: 100%;
+  overflow: visible;
+  align-items: center;
+}
+
+#dock .emoji-row > span {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* In the desktop dock the emoji roster adapts to the Object column width:
+   ten square cells that shrink/grow to fill the available space. */
+#dock .emoji-row {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#dock .emoji-chip {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+}
+
+#drawer .emoji-row {
+  grid-template-columns: repeat(5, 40px);
+  justify-content: start;
+}
+
 .emoji-chip {
   width: 40px;
   height: 40px;
@@ -196,6 +229,95 @@ body {
   opacity: 0.85;
 }
 
+/* ── Dock sections (Object / Animations / Sharing) ── */
+.dock-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 12px;
+}
+
+/* Object + Animations sit side by side in the desktop dock (60/40). */
+.dock-sections-row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+/* Sharing + Instructions share an even row below Object | Animations. */
+.dock-sections-row--halves {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dock-sections-row .dock-section {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* Compact instruction keys in the dock row (3 across, tiny two-line cells). */
+.dock-instructions dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 8px;
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.dock-instructions dt {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.dock-instructions dd {
+  color: var(--color-text-secondary);
+}
+
+.dock-section-heading {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+
+.presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Animations column: the 4 presets pack into a 2x2 grid to fit the 40% width. */
+.dock-animations .presets-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dock-appearance {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dock-actions .capture-btn,
+.dock-actions .share-btn {
+  min-width: 84px;
+}
+
 /* ── Theme swatches ───────────────────── */
 .theme-swatch {
   width: 26px;
@@ -260,6 +382,69 @@ body {
   z-index: 1;
 }
 
+/* ── Wordmark particle dissolve & reform ── */
+#wordmark:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+#wordmark:hover {
+  text-shadow: 0 0 14px var(--color-accent-glow);
+}
+
+#wordmark.is-playing {
+  color: #fff;
+  text-shadow: 0 0 18px var(--color-accent-glow), 0 0 32px rgba(99, 102, 241, 0.35);
+}
+
+.title-letter {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+}
+
+/* Letters break apart like particles: offset/rotate/scale/blur with a center-out
+   stagger (--i), then reform left-to-right with a springy settle. */
+#wordmark.is-playing .title-letter {
+  animation:
+    title-dissolve 0.45s cubic-bezier(0.6, 0.04, 0.98, 0.34) calc((3.5 - var(--i)) * 30ms) both,
+    title-reform 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) calc(0.55s + var(--i) * 55ms) both;
+}
+
+@keyframes title-dissolve {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  100% {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(1.55);
+    opacity: 0.15;
+    filter: blur(5px);
+  }
+}
+
+@keyframes title-reform {
+  0% {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(1.55);
+    opacity: 0.15;
+    filter: blur(5px);
+  }
+
+  100% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #wordmark.is-playing .title-letter {
+    animation: none;
+  }
+}
+
 /* ── Dock collapsed state ─────────────── */
 #dock.collapsed .dock-body {
   max-height: 0;
@@ -295,6 +480,17 @@ body {
   #drawer-backdrop.active {
     opacity: 1;
     pointer-events: auto;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 900px) {
+  .dock-appearance {
+    justify-content: flex-start;
+  }
+
+  /* Narrower dock: Object keeps 60%, Animations 40%; fluid grids adapt. */
+  .dock-sections-row {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   }
 }
 

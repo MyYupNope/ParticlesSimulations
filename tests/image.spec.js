@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForRender, waitForCameraSettle } from './helpers';
+import { waitForRender, waitForCameraSettle, fitMetrics } from './helpers';
 import { deflateSync } from 'node:zlib';
 
 // Build a tiny valid RGBA PNG (2x2, two white pixels top, two red pixels bottom)
@@ -78,18 +78,47 @@ test('Message offers Text, Emoji and Image types with contextual follow-ups', as
     await expect(page.locator('#dock .emoji-row')).toBeHidden();
     await expect(page.locator('#dock .image-message-mode')).toBeHidden();
 
-    // Emoji type reveals the roster of pre-selected emojis.
+    // The context line reflects the active message type (Text default).
+    await expect(page.locator('#context-line')).toContainText('Type a message');
+
+    // Emoji type reveals the roster of pre-selected emojis and its own context.
     await page.click('#dock .message-option[data-message-mode="emoji"]');
     expect(await page.$eval('#dock .message-option.active', el => el.getAttribute('data-message-mode'))).toBe('emoji');
     await expect(page.locator('#dock .emoji-row')).toBeVisible();
     await expect(page.locator('#text-input')).toBeHidden();
+    await expect(page.locator('#context-line')).toContainText('Pick an emoji');
 
-    // Image type hides the text area/emojis and reveals the upload.
+    const emojiLayout = await page.evaluate(() => {
+        const panel = document.querySelector('#dock .emoji-message-mode').getBoundingClientRect();
+        const row = document.querySelector('#dock .emoji-row');
+        const rowBox = row.getBoundingClientRect();
+        const chips = Array.from(row.querySelectorAll('.emoji-chip')).map(chip => {
+            const box = chip.getBoundingClientRect();
+            return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+        });
+        return {
+            panel,
+            rowBox,
+            scrollWidth: row.scrollWidth,
+            clientWidth: row.clientWidth,
+            chips
+        };
+    });
+    expect(emojiLayout.scrollWidth).toBeLessThanOrEqual(emojiLayout.clientWidth + 1);
+    expect(emojiLayout.rowBox.left).toBeGreaterThanOrEqual(emojiLayout.panel.left);
+    expect(emojiLayout.rowBox.right).toBeLessThanOrEqual(emojiLayout.panel.right + 1);
+    for (const chip of emojiLayout.chips) {
+        expect(chip.left).toBeGreaterThanOrEqual(emojiLayout.rowBox.left);
+        expect(chip.right).toBeLessThanOrEqual(emojiLayout.rowBox.right + 1);
+    }
+
+    // Image type hides the text area/emojis and reveals the upload, with its own context.
     await page.click('#dock .message-option[data-message-mode="image"]');
     expect(await page.$eval('#dock .message-option.active', el => el.getAttribute('data-message-mode'))).toBe('image');
     await expect(page.locator('#text-input')).toBeHidden();
     await expect(page.locator('#dock .image-upload-button')).toBeVisible();
     await expect(page.locator('#dock .image-name')).toHaveText('No file chosen');
+    await expect(page.locator('#context-line')).toContainText('Upload an image');
     const uploadButton = await page.locator('#dock .image-upload-button').boundingBox();
     const imageName = await page.locator('#dock .image-name').boundingBox();
     expect(imageName.x).toBeGreaterThan(uploadButton.x + uploadButton.width);
@@ -97,10 +126,11 @@ test('Message offers Text, Emoji and Image types with contextual follow-ups', as
     const nameCenterY = imageName.y + imageName.height / 2;
     expect(Math.abs(nameCenterY - buttonCenterY)).toBeLessThan(4);
 
-    // And back to Text.
+    // And back to Text (with the Text context hint restored).
     await page.click('#dock .message-option[data-message-mode="text"]');
     await expect(page.locator('#text-input')).toBeVisible();
     await expect(page.locator('#dock .image-message-mode')).toBeHidden();
+    await expect(page.locator('#context-line')).toContainText('Type a message');
 });
 
 test('uploading an image turns it into a source-colored particle sculpture', async ({ page }) => {
@@ -148,6 +178,52 @@ test('uploading an image turns it into a source-colored particle sculpture', asy
     expect(errors).toEqual([]);
 });
 
+test('entering Image with no prior upload renders nothing', async ({ page }) => {
+    await openPage(page);
+
+    await page.click('#dock .message-option[data-message-mode="image"]');
+    await waitForCameraSettle(page);
+
+    expect(await page.evaluate(() => window.__artzDebug.particleCount)).toBe(0);
+    await expect(page.locator('#dock .image-name')).toHaveText('No file chosen');
+});
+
+test('returning to Image re-renders the last uploaded image', async ({ page }) => {
+    await openPage(page);
+
+    await uploadSquare(page);
+
+    // Leave Image (Text) and return: the last uploaded image comes back.
+    await page.click('#dock .message-option[data-message-mode="text"]');
+    await waitForCameraSettle(page);
+    expect(await page.inputValue('#text-input')).toBe('Bring your message!');
+
+    await page.click('#dock .message-option[data-message-mode="image"]');
+    await waitForCameraSettle(page);
+
+    expect(await page.evaluate(() => window.__artzDebug._render().particles.material.uniforms.uEmojiMode.value)).toBe(1);
+    await expect(page.locator('#dock .image-name')).toHaveText('square.png');
+    expect(await page.evaluate(() => window.__artzDebug.particleCount)).toBeGreaterThan(0);
+});
+
+test('returning to Image after visiting Emoji restores the last uploaded image', async ({ page }) => {
+    await openPage(page);
+
+    await uploadSquare(page);
+
+    // Visit Emoji (no pick) then return to Image: the uploaded image is remembered.
+    await page.click('#dock .message-option[data-message-mode="emoji"]');
+    await waitForCameraSettle(page);
+    expect(await page.evaluate(() => window.__artzDebug.particleCount)).toBe(0);
+
+    await page.click('#dock .message-option[data-message-mode="image"]');
+    await waitForCameraSettle(page);
+
+    expect(await page.evaluate(() => window.__artzDebug._render().particles.material.uniforms.uEmojiMode.value)).toBe(1);
+    await expect(page.locator('#dock .image-name')).toHaveText('square.png');
+    expect(await page.evaluate(() => window.__artzDebug.particleCount)).toBeGreaterThan(0);
+});
+
 async function uploadSquare(page) {
     await page.click('#dock .message-option[data-message-mode="image"]');
     await page.locator('#image-input').setInputFiles({
@@ -159,93 +235,65 @@ async function uploadSquare(page) {
     await waitForCameraSettle(page);
 }
 
-// Mirrors CONFIG.imageFitPadX/Y and imageAutoZoom so the clearance floor is
-// asserted without importing application constants.
-function imageFrameMetrics(stageW, stageH, z) {
-    const tanHalf = Math.tan(75 * Math.PI / 360);
-    const side = stageH * 80 / (2 * z * tanHalf);
-    return {
-        side,
-        leftGap: (stageW - side) / 2,
-        bottomGap: (stageH - side) / 2
-    };
-}
+test('returning to Text after an image upload restores the last typed text', async ({ page }) => {
+    await openPage(page);
 
-test('uploaded image zooms out to clear the menu and bottom instructions', async ({ page }) => {
+    await page.locator('#text-input').fill('Hello world');
+    await page.waitForTimeout(400);
+    await uploadSquare(page);
+
+    await page.click('#dock .message-option[data-message-mode="text"]');
+    await page.waitForFunction(() => new URLSearchParams(window.location.search).get('t') === 'Hello world');
+    await waitForCameraSettle(page);
+
+    expect(await page.inputValue('#text-input')).toBe('Hello world');
+    expect(await page.$eval('#dock .message-option.active', el => el.getAttribute('data-message-mode'))).toBe('text');
+    // Image is dropped: no image remains active in the sculpture.
+    expect(await page.evaluate(() => window.__artzDebug._render().particles.material.uniforms.uEmojiMode.value)).toBe(0);
+});
+
+// Mirrors the app's unified max-fit so the clearance floor is asserted without
+// importing application constants: the sculpture must stay inside the stage
+// minus a uniform margin and the top/bottom chrome.
+test('uploaded image is maximized within the stage margins (desktop)', async ({ page }) => {
     await openPage(page);
     await uploadSquare(page);
 
-    const m = await page.evaluate(() => {
-        const stage = document.getElementById('stage').getBoundingClientRect();
-        const cam = window.__artzDebug._render().camera;
-        const r = window.__artzDebug._render();
-        const tanHalf = Math.tan(75 * Math.PI / 360);
-        const halfBox = 40;
-        const padX = Math.min(120, stage.width * 0.35);
-        const padY = Math.min(120, stage.height * 0.35);
-        const dock = document.getElementById('dock');
-        const dockH = dock ? dock.getBoundingClientRect().height : 0;
-        const zByHeight = halfBox * stage.height / (tanHalf * Math.max(stage.height - 2 * padY - dockH, 1));
-        const zByWidth = halfBox * stage.height / (tanHalf * Math.max(stage.width - 2 * padX, 1));
-        return {
-            z: cam.position.z,
-            targetZ: r.targetZ,
-            expectedZ: Math.min(120, Math.max(zByHeight, zByWidth, 10)),
-            stageWidth: stage.width,
-            stageHeight: stage.height,
-            dockH
-        };
-    });
+    const m = await fitMetrics(page);
 
-    // The camera should sit exactly where the padded fit demands, and farther out
-    // than the previous image framing (~60.6 at this viewport) so the image reads
-    // noticeably smaller.
-    expect(Math.abs(m.z - m.expectedZ)).toBeLessThan(1.5);
-    expect(m.z).toBeGreaterThan(61);
-    expect(Math.abs(m.targetZ - m.z)).toBeLessThan(0.01);
-
-    const fit = imageFrameMetrics(m.stageWidth, m.stageHeight, m.z);
-    expect(fit.leftGap).toBeGreaterThanOrEqual(110);
-    expect(fit.bottomGap).toBeGreaterThanOrEqual(110);
+    // The square image must fit inside the available region (margins + chrome).
+    expect(m.boxWpx).toBeLessThanOrEqual(m.availW + 1);
+    expect(m.boxHpx).toBeLessThanOrEqual(m.availH + 1);
+    // ...and be maximized: at least one axis fills the available space.
+    expect(Math.max(m.boxWpx / m.availW, m.boxHpx / m.availH)).toBeGreaterThan(0.9);
 });
 
-test('uploaded image keeps both clearances when width is the binding stage axis', async ({ page }) => {
+test('uploaded image keeps clearances on a portrait-ish desktop window', async ({ page }) => {
     // Narrow-but-desktop window: the stage is portrait-ish (height < width ratio),
-    // so the width constraint is the binding one in imageAutoZoom.
+    // so the height constraint is the binding one in the unified fit.
     await page.setViewportSize({ width: 1000, height: 800 });
     await page.goto('/');
     await waitForRender(page);
     await uploadSquare(page);
 
-    const m = await page.evaluate(() => {
-        const stage = document.getElementById('stage').getBoundingClientRect();
-        const cam = window.__artzDebug._render().camera;
-        const geo = window.__artzDebug._render().particles.geometry;
-        const pos = geo.attributes.position.array;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        for (let i = 0; i < pos.length; i += 3) {
-            minX = Math.min(minX, pos[i]);
-            maxX = Math.max(maxX, pos[i]);
-            minY = Math.min(minY, pos[i + 1]);
-            maxY = Math.max(maxY, pos[i + 1]);
-        }
-        const tanHalf = Math.tan(75 * Math.PI / 360);
-        const side = stage.height * 80 / (2 * cam.position.z * tanHalf);
-        return {
-            z: cam.position.z,
-            stageWidth: stage.width,
-            stageHeight: stage.height,
-            side,
-            leftGap: (stage.width - side) / 2,
-            bottomGap: (stage.height - side) / 2,
-            aspect: (maxX - minX) / (maxY - minY)
-        };
-    });
+    const m = await fitMetrics(page);
 
-    // The width-binding fit must still honor both paddings, keep a square source
-    // square, and never push the image past the stage's horizontal edges.
-    expect(m.leftGap).toBeGreaterThanOrEqual(110);
-    expect(m.bottomGap).toBeGreaterThanOrEqual(110);
-    expect(Math.abs(m.aspect - 1)).toBeLessThan(0.15);
-    expect(m.side).toBeLessThanOrEqual(m.stageWidth);
+    // The fit must honor the margins on both axes, keep a square source square,
+    // and never push the image past the stage's horizontal edges.
+    expect(m.boxWpx).toBeLessThanOrEqual(m.availW + 1);
+    expect(m.boxHpx).toBeLessThanOrEqual(m.availH + 1);
+    expect(Math.max(m.boxWpx / m.availW, m.boxHpx / m.availH)).toBeGreaterThan(0.9);
+
+    const aspect = await page.evaluate(() => {
+        const home = window.__artzDebug._render().particles.geometry.attributes.homePosition.array;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < home.length; i += 3) {
+            if (home[i] < minX) minX = home[i];
+            if (home[i] > maxX) maxX = home[i];
+            if (home[i + 1] < minY) minY = home[i + 1];
+            if (home[i + 1] > maxY) maxY = home[i + 1];
+        }
+        return (maxX - minX) / (maxY - minY);
+    });
+    expect(Math.abs(aspect - 1)).toBeLessThan(0.15);
 });

@@ -96,6 +96,86 @@ test('typing after picking reverts to the regular text path', async ({ page }) =
     expect(count).toBeLessThan(4000);
 });
 
+test('returning to Text after picking an emoji restores the default message', async ({ page }) => {
+    await openPage(page);
+    await pickEmoji(page, '😀');
+
+    // Switch back to the Text tab: the pick must be cleared and the default
+    // message displayed instead (no prior text typed).
+    await page.click('#dock .message-option[data-message-mode="text"]');
+    await page.waitForFunction(() => new URLSearchParams(window.location.search).get('t') === 'Bring your message!');
+    await waitForCameraSettle(page);
+
+    expect(await page.inputValue('#text-input')).toBe('Bring your message!');
+    expect(await page.$$eval('#dock .emoji-chip.active', els => els.length)).toBe(0);
+    // The sculpture must be back on the regular text path (not the emoji source).
+    expect(await page.evaluate(() => window.__artzDebug._render().particles.material.uniforms.uEmojiMode.value)).toBe(0);
+    expect(await particleCount(page)).toBeGreaterThan(0);
+});
+
+test('returning to Text after an emoji pick restores the last typed text', async ({ page }) => {
+    await openPage(page);
+
+    // Type a real message first so "last text" is remembered.
+    await page.locator('#text-input').fill('Hi there');
+    await page.waitForTimeout(400);
+    await pickEmoji(page, '😀');
+
+    await page.click('#dock .message-option[data-message-mode="text"]');
+    await page.waitForFunction(() => new URLSearchParams(window.location.search).get('t') === 'Hi there');
+    await waitForCameraSettle(page);
+
+    expect(await page.inputValue('#text-input')).toBe('Hi there');
+    expect(await page.$$eval('#dock .emoji-chip.active', els => els.length)).toBe(0);
+});
+
+test('entering Emoji with no previous pick renders nothing', async ({ page }) => {
+    await openPage(page);
+
+    await page.click('#dock .message-option[data-message-mode="emoji"]');
+    await waitForCameraSettle(page);
+
+    // No emoji was ever picked: the stage renders nothing.
+    expect(await particleCount(page)).toBe(0);
+    expect(await page.$$eval('#dock .emoji-chip.active', els => els.length)).toBe(0);
+    await expect(page.locator('#dock .emoji-row')).toBeVisible();
+});
+
+test('returning to Emoji re-renders the last picked emoji', async ({ page }) => {
+    await openPage(page);
+    await pickEmoji(page, '😀');
+
+    // Leave Emoji (Text) and return: the last picked emoji comes back.
+    await page.click('#dock .message-option[data-message-mode="text"]');
+    await waitForCameraSettle(page);
+    expect(await page.inputValue('#text-input')).toBe('Bring your message!');
+
+    await page.click('#dock .message-option[data-message-mode="emoji"]');
+    await page.waitForFunction((e) => new URLSearchParams(window.location.search).get('t') === e, '😀');
+    await waitForCameraSettle(page);
+
+    expect(await page.$eval('#dock .emoji-chip.active', el => el.getAttribute('data-emoji'))).toBe('😀');
+    expect(await page.evaluate(() => window.__artzDebug._render().particles.material.uniforms.uEmojiMode.value)).toBe(1);
+    expect(await particleCount(page)).toBeGreaterThan(7000);
+});
+
+test('returning to Emoji after visiting Image restores the last picked emoji', async ({ page }) => {
+    await openPage(page);
+    await pickEmoji(page, '🔥');
+
+    // Visit Image (no upload) then return to Emoji: 🔥 is remembered.
+    await page.click('#dock .message-option[data-message-mode="image"]');
+    await waitForCameraSettle(page);
+    expect(await particleCount(page)).toBe(0);
+
+    await page.click('#dock .message-option[data-message-mode="emoji"]');
+    await page.waitForFunction((e) => new URLSearchParams(window.location.search).get('t') === e, '🔥');
+    await waitForCameraSettle(page);
+
+    expect(await page.$eval('#dock .emoji-chip.active', el => el.getAttribute('data-emoji'))).toBe('🔥');
+    expect(await particleCount(page)).toBeGreaterThan(7000);
+});
+
 test('shared URL with an emoji message restores the detailed rendering', async ({ page }) => {
     await openPage(page, `/?t=${EMOJI}`);
 

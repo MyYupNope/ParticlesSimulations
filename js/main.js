@@ -45,11 +45,10 @@ const CONFIG = {
     initialZ: 35,
     cameraAngleDeg: CAMERA_ANGLE_DEG, // Orthographic frustum angle that mirrors the old perspective view
     zoomMin: 10,
-    zoomMax: 120,
-    // Message-type auto-zoom: emojis render at the farthest zoom (smallest
-    // display), while text fills most of the desktop stage. Both are overridden
-    // once the user zooms manually.
-    textAutoZoom: 45,
+    zoomMax: 200,
+    // Uniform margin (px) reserved on every side of the sculpture so it never
+    // touches the options menu (dock / drawer / input bar) or the screen edges.
+    fitMargin: 56,
     zoomSpeed: 0.8,
     zoomLerp: 0.08,
     rotationStep: 0.03,
@@ -72,8 +71,6 @@ const CONFIG = {
         '👍', '👎', '👏', '🙏', '👌', '💪', '❤️', '🔥', '✨', '🎉'
     ],
     emojiRasterSize: 320,
-    emojiFitPadX: 52,
-    emojiFitPadY: 52,
     emojiPixelStep: 2,     // canvas edge for a single emoji (px)
     emojiFontSize: 280,       // glyph size within the emoji raster (px)
     emojiEdgeStep: 1,         // feature/silhouette edge samples (full density)
@@ -100,11 +97,6 @@ const CONFIG = {
     imagePointSize: 1.2,
     imageDepthLayers: 4,      // number of Z-slices to replicate image points across
     imageDepthRange: 5.0,     // total depth extent of the image volume in world units
-    // Initial image framing: keep a fair distance from the left menu side and the
-    // bottom instructions overlay (pixels of cleared stage each side). Uniform
-    // camera distance means the image's aspect ratio is never distorted.
-    imageFitPadX: 120,
-    imageFitPadY: 120,
 
     // Particles
     density: 8,
@@ -129,7 +121,7 @@ const CONFIG = {
     afterglowDuration: 0.2,
 
     // Mouse repulsion
-    mouseInfluence: 8.0,
+    mouseInfluence: 6.0,    // hover/repulsion radius (reduced to 75% of the previous 8.0)
     repulsionStrength: 12.0,
 
     // Spring physics
@@ -324,6 +316,11 @@ let gustX = 1, gustY = 0, gustZ = 0;
 let activeBreezeConfig = null;
 let gustPerpX = 0, gustPerpY = 1, gustPerpZ = 0;
 let activeGustX = 1, activeGustY = 0;
+
+// Measured world-space bounding box of the current sculpture (set on every
+// particle rebuild). Drives the unified max-fit framing for text, emoji, and
+// image messages so all three honour the same screen margins.
+let contentBox = { w: 80, h: 80 };
 
 // ─────────────────────────────────────────────
 // Shaders (GPU-Native Kinematics Engine)
@@ -773,6 +770,7 @@ void main() {
 // Global configuration state
 const state = {
     currentText: 'Bring your message!',
+    lastText: 'Bring your message!', // last user-typed text, restored when leaving Emoji/Image
     currentTheme: 'ember',
     currentFont: 'Outfit',
     messageMode: 'text',
@@ -780,6 +778,9 @@ const state = {
     imageName: '',
     activePreset: null,  // Tracks which preset chip is currently selected
     activeEmoji: null,   // Set when an emoji is picked from the list; cleared by typing
+    lastEmoji: null,     // Remembered last picked emoji, restored when returning to Emoji mode
+    lastImage: null,     // Remembered last uploaded image, restored when returning to Image mode
+    lastImageName: '',   // Filename of the remembered image (for the picker label)
     audioEnabled: true,  // Controls procedural sound effects synthesis
     gpuPhysics: !(typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('noworker') === '1' || new URLSearchParams(window.location.search).get('gpu') === '0')),
 
@@ -937,6 +938,9 @@ const interaction = {
     toastTimer: null,
     flashTimer: null,
     drawerCloseTimer: null,
+    wordmarkTimer: null,   // auto-removes the title flourish after it completes
+    menuRestoreDesktop: false, // dock body was expanded when the animation started
+    menuRestoreMobile: false,  // drawer was open when the animation started
     isDragging: false,
     prevMouseX: 0,
     prevMouseY: 0,
@@ -1759,8 +1763,13 @@ async function setupParticles(text, shouldScatter = false) {
         }
     }
 
+    // Measure the built sculpture's world-space extent so the camera can frame
+    // it at the largest size the available stage (minus margins) allows.
+    contentBox = measureContentBox();
+
     // Refit the camera to the new content: message changes re-zoom to the
-    // message type's level (emoji smallest / text stage-filling), pre-user-zoom.
+    // message type's framing (text/emoji/image all share the same max-fit),
+    // pre-user-zoom.
     if (render.autoFit) updateStageLayout();
 
     // Morph transition: when particle counts match, start particles at their OLD
@@ -2548,6 +2557,13 @@ async function updateText(text, shouldPush = true) {
     const finalVal = val.length > 0 ? val : 'Bring your message!';
     state.currentText = finalVal;
 
+    // Remember the user's text so returning to Text mode after an Emoji/Image
+    // pick restores it (emoji/image updates run with a non-text messageMode and
+    // therefore never clobber this).
+    if (state.messageMode === 'text') {
+        state.lastText = finalVal;
+    }
+
     await setupParticles(finalVal, false);
     updateURLParams(state.currentText, state.currentTheme, state.currentFont, shouldPush);
     announceToScreenReader(`Text updated to "${state.currentText}"`);
@@ -2689,26 +2705,35 @@ function updateStageLayout() {
     render.renderer.setPixelRatio(dpr);
     uniforms.uPixelRatio.value = dpr;
 
-    // Auto-zoom by message type, until the user zooms manually: emojis render at
-    // the farthest zoom (smallest display), text fills most of the stage, and
-    // uploaded images are framed to fit the whole square in the stage.
+    // Auto-fit the sculpture to the largest size the stage allows, leaving a
+    // margin on every side that accommodates the top bar and the options menu
+    // (dock on desktop, input bar on mobile) so the object never touches them.
     if (render.autoFit) {
-        if (state.messageMode === 'image' && state.activeImage) {
-            render.targetZ = imageAutoZoom(w, h);
-        } else if (state.activeEmoji && CONFIG.emojiOptions.includes(state.currentText)) {
-            render.targetZ = emojiAutoZoom(w, h);
-        } else {
-            render.targetZ = CONFIG.textAutoZoom;
-        }
+        render.targetZ = contentAutoZoom(w, h);
     }
+}
+
+// Height of the top UI chrome (wordmark + status pill / hamburger row) that
+// overlays the stage; used as top clearance so the sculpture never hides behind
+// the header.
+function topbarHeight() {
+    const topbar = document.getElementById('topbar');
+    if (!topbar) return 0;
+    return topbar.getBoundingClientRect().height;
 }
 
 // Height of the bottom UI chrome that overlays the stage (desktop dock or the
 // mobile input bar). Framing uses this as bottom clearance so the sculpture is
-// never hidden behind the controls.
+// never hidden behind the controls. While the dock is collapsed the header row
+// is measured directly so mid-transition rects never jitter the framing.
 function bottomChromeHeight() {
     const dock = document.getElementById('dock');
     if (dock) {
+        if (dock.classList.contains('collapsed')) {
+            const row = dock.firstElementChild;
+            const rowH = row ? row.getBoundingClientRect().height : 0;
+            return rowH + 24; // dock vertical padding (py-3 top + bottom)
+        }
         const rect = dock.getBoundingClientRect();
         if (rect.height > 0) return rect.height;
     }
@@ -2720,48 +2745,59 @@ function bottomChromeHeight() {
     return 0;
 }
 
-// Frame the square 80-unit image raster inside the stage with explicit clearance
-// from the stage edges (the left menu side and the bottom instructions overlay).
-// The per-axis available space converts to a camera distance; the aspect cancels
-// out, and the larger distance wins so both paddings are satisfied. Only the
-// camera distance changes — the raster scale is untouched, so the image's own
-// aspect ratio is preserved exactly.
-function emojiAutoZoom(stageW, stageH) {
-    const tanHalf = Math.tan(CONFIG.cameraAngleDeg * Math.PI / 360);
-    const halfBox = CONFIG.targetWorldWidth / 2;
-    // 16% margins around the emoji so it occupies ~68% of the stage height/width.
-    // The bottom clearance grows with the dock/input-bar height so the sculpture
-    // stays visible above the controls.
-    const bottomPad = Math.max(stageH * 0.16, 80) + bottomChromeHeight();
-    const padX = Math.max(stageW * 0.16, 80);
-    const padY = Math.max(stageH * 0.16, 80);
-    const availW = Math.max(stageW - 2 * padX, 1);
-    const availH = Math.max(stageH - padY - bottomPad, 1);
-    const zByHeight = halfBox * stageH / (tanHalf * availH);
-    const zByWidth = halfBox * stageH / (tanHalf * availW);
-    return Math.min(CONFIG.zoomMax, Math.max(zByHeight, zByWidth, CONFIG.zoomMin));
+// Measure the current sculpture's world-space bounding box (X/Y only; the depth
+// layers repeat the same silhouette at different Z).
+function measureContentBox() {
+    const home = physics.posHome;
+    if (!home || home.length === 0) return { w: 80, h: 80 };
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < home.length; i += 3) {
+        const x = home[i], y = home[i + 1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    }
+    const w = maxX - minX, h = maxY - minY;
+    if (!isFinite(w) || !isFinite(h) || w < 1e-6 || h < 1e-6) return { w: 80, h: 80 };
+    return { w, h };
 }
 
-function imageAutoZoom(stageW, stageH) {
+// Unified max-fit framing for text, emoji, and image messages. The sculpture is
+// fitted to the largest size the stage allows while leaving CONFIG.fitMargin on
+// every side plus the top bar / bottom chrome clearances, so the object never
+// touches the options menu. The per-axis available space converts to a camera
+// distance; the larger distance wins so both constraints are satisfied. Only the
+// camera distance changes — the raster scale is untouched, so each object's own
+// aspect ratio is preserved exactly.
+function contentAutoZoom(stageW, stageH) {
     const tanHalf = Math.tan(CONFIG.cameraAngleDeg * Math.PI / 360);
-    const halfBox = CONFIG.targetWorldWidth / 2;
-    const padX = Math.min(CONFIG.imageFitPadX, stageW * 0.35);
-    const padYTop = Math.min(CONFIG.imageFitPadY, stageH * 0.35);
-    const padYBottom = Math.min(CONFIG.imageFitPadY, stageH * 0.35) + bottomChromeHeight();
-    const availW = Math.max(stageW - 2 * padX, 1);
-    const availH = Math.max(stageH - padYTop - padYBottom, 1);
-    const zByHeight = halfBox * stageH / (tanHalf * availH);
-    const zByWidth = halfBox * stageH / (tanHalf * availW);
-    return Math.min(CONFIG.zoomMax, Math.max(zByHeight, zByWidth, CONFIG.zoomMin));
+    const box = contentBox;
+    const margin = CONFIG.fitMargin;
+    const availW = Math.max(stageW - 2 * margin, 1);
+    const availH = Math.max(stageH - (topbarHeight() + margin) - (bottomChromeHeight() + margin), 1);
+    const zByWidth  = box.w * stageH / (2 * tanHalf * availW);
+    const zByHeight = box.h * stageH / (2 * tanHalf * availH);
+    return Math.min(CONFIG.zoomMax, Math.max(zByWidth, zByHeight, CONFIG.zoomMin));
 }
 
 const CONTEXT_DEFAULT = 'Type a message — your words become thousands of glowing particles.';
+const CONTEXT_EMOJI = 'Pick an emoji — it bursts into thousands of glowing, colorful particles.';
+const CONTEXT_IMAGE = 'Upload an image — its pixels become thousands of glowing particles.';
 
-// Update the dock's contextual description line.
+// Context hint for the active message type (Text / Emoji / Image).
+function contextForMode(mode) {
+    if (mode === 'emoji') return CONTEXT_EMOJI;
+    if (mode === 'image') return CONTEXT_IMAGE;
+    return CONTEXT_DEFAULT;
+}
+
+// Update the dock's contextual description line (and its mobile drawer copy).
 function updateContextLine(text) {
     const line = document.getElementById('context-line');
-    if (!line) return;
-    line.textContent = text;
+    if (line) line.textContent = text;
+    const mobile = document.getElementById('mobile-context-line');
+    if (mobile) mobile.textContent = text;
 }
 
 // Highlight the active preset button, clear others
@@ -2776,7 +2812,7 @@ function setActivePreset(presetName) {
         }
     });
     const preset = CONFIG.presets[presetName];
-    updateContextLine(preset && preset.description ? preset.description : CONTEXT_DEFAULT);
+    updateContextLine(preset && preset.description ? preset.description : contextForMode(state.messageMode));
 }
 
 // Clear all preset highlights
@@ -2786,7 +2822,7 @@ function clearActivePresets() {
     chips.forEach(chip => {
         chip.classList.remove('active');
     });
-    updateContextLine(CONTEXT_DEFAULT);
+    updateContextLine(contextForMode(state.messageMode));
 }
 
 // Highlight the picked emoji chip (or clear all when null)
@@ -2821,32 +2857,80 @@ function setMessageModeUI(mode) {
     if (inputBar) inputBar.style.display = m === 'text' ? '' : 'none';
 }
 
+// Empty the stage: removes the current sculpture so no particles render. Used
+// when entering Emoji/Image mode with no remembered choice ("render nothing").
+// Trails and embers are hidden until the next real sculpture build re-enables them.
+function clearSculpture() {
+    if (render.particles) {
+        render.scene.remove(render.particles);
+        render.particles = null;
+    }
+    if (render.trailPoints) render.trailPoints.visible = false;
+    if (render.emberPoints) render.emberPoints.visible = false;
+    physics.posHome = new Float32Array(0);
+    physics.posLive = new Float32Array(0);
+    physics.explosionOrigin = new Float32Array(0);
+    physics.springDisp = new Float32Array(0);
+    physics.springVel = new Float32Array(0);
+    physics.randomDir = new Float32Array(0);
+    physics.randomSpeed = new Float32Array(0);
+    physics.funnelT = new Float32Array(0);
+    physics.funnelRadialX = new Float32Array(0);
+    physics.funnelRadialZ = new Float32Array(0);
+    physics.slots = [];
+    physics.sendQueue = [];
+    physics.sourceGeneration++;
+    physics.motionToken++;
+    contentBox = { w: 80, h: 80 };
+}
+
 // Switch the active Message type and rebuild the sculpture for the new source.
 async function switchMessageMode(mode) {
     setMessageModeUI(mode);
     clearActivePresets();
     resetToDefaultExplosion();
     if (state.messageMode === 'emoji') {
-        const emoji = state.activeEmoji && CONFIG.emojiOptions.includes(state.activeEmoji)
-            ? state.activeEmoji
-            : (CONFIG.emojiOptions.includes(state.currentText) ? state.currentText : null);
+        state.activeImage = null;
+        const emoji = state.lastEmoji && CONFIG.emojiOptions.includes(state.lastEmoji)
+            ? state.lastEmoji
+            : null;
         if (emoji) {
             state.activeEmoji = emoji;
             setEmojiActive(emoji);
             syncInputValues(emoji);
             await setupParticles(emoji, false);
+            updateURLParams(emoji, state.currentTheme, state.currentFont, true);
+        } else {
+            // No previous emoji choice — render nothing until one is picked.
+            state.activeEmoji = null;
+            setEmojiActive(null);
+            clearSculpture();
         }
-        // No emoji picked yet — the roster is now visible for the next selection.
     } else if (state.messageMode === 'image') {
-        if (state.activeImage) {
+        state.activeEmoji = null;
+        setEmojiActive(null);
+        const imageNameEls = document.querySelectorAll('.image-name');
+        if (state.lastImage) {
+            state.activeImage = state.lastImage;
+            imageNameEls.forEach(el => { el.textContent = state.lastImageName; });
             await setupParticles(state.currentText, false);
+        } else {
+            // No previously uploaded image: render nothing, show the empty label.
+            state.activeImage = null;
+            imageNameEls.forEach(el => { el.textContent = 'No file chosen'; });
+            clearSculpture();
         }
-        // No image loaded yet — the upload control is now visible.
     } else {
         state.activeEmoji = null;
         state.activeImage = null;
         setEmojiActive(null);
-        await setupParticles(state.currentText, false);
+        // An Emoji/Image pick overwrote currentText; bring back the last typed
+        // text (or the default message) instead of leaving the pick selected.
+        const text = (state.lastText && state.lastText.trim()) || 'Bring your message!';
+        state.currentText = text;
+        syncInputValues(text);
+        await setupParticles(text, false);
+        updateURLParams(state.currentText, state.currentTheme, state.currentFont, true);
     }
 }
 
@@ -2863,13 +2947,14 @@ function handleImageUpload(file) {
         URL.revokeObjectURL(url);
         setMessageModeUI('image');
         state.activeImage = img;
+        state.lastImage = img; // remember this choice for later Image-mode returns
+        state.lastImageName = file.name;
         state.imageName = file.name;
         state.activeEmoji = null;
         setEmojiActive(null);
         clearActivePresets();
         resetToDefaultExplosion();
-        const imageName = document.querySelector('.image-name');
-        if (imageName) imageName.textContent = file.name;
+        document.querySelectorAll('.image-name').forEach(el => { el.textContent = file.name; });
         await setupParticles(state.currentText, false);
         announceToScreenReader(`Image uploaded: ${file.name}`);
     };
@@ -2923,6 +3008,68 @@ function toggleMobileMenu() {
     } else {
         openMobileMenu();
     }
+}
+
+function collapseDock() {
+    const dock = document.getElementById('dock');
+    if (!dock || dock.classList.contains('collapsed')) return false;
+    dock.classList.add('collapsed');
+    const btn = document.getElementById('dock-toggle-btn');
+    if (btn) {
+        btn.setAttribute('aria-expanded', 'false');
+        btn.title = 'Expand controls';
+    }
+    return true;
+}
+
+function expandDock() {
+    const dock = document.getElementById('dock');
+    if (!dock) return;
+    dock.classList.remove('collapsed');
+    const btn = document.getElementById('dock-toggle-btn');
+    if (btn) {
+        btn.setAttribute('aria-expanded', 'true');
+        btn.title = 'Collapse controls';
+    }
+}
+
+// Refit the sculpture after the dock's 0.4s collapse/expand transition finishes,
+// so the camera framing reflects the settled dock height (not the mid-transition
+// height measured by an immediate updateStageLayout()).
+function refitAfterDockTransition() {
+    if (!render.autoFit) return;
+    updateStageLayout();
+    setTimeout(() => {
+        if (render.autoFit) updateStageLayout();
+    }, 460);
+}
+
+// Close the options menu while an animation plays, remembering whether it should
+// be restored once the animation finishes. The sculpture is then refit into the
+// newly available space (still keeping its margins) so it fills more of the
+// screen while the menu is tucked away.
+function closeMenuForAnimation() {
+    const dock = document.getElementById('dock');
+    interaction.menuRestoreDesktop = !!(dock && !dock.classList.contains('collapsed'));
+    collapseDock();
+    const drawer = document.getElementById('drawer');
+    interaction.menuRestoreMobile = !!(drawer && drawer.classList.contains('open'));
+    closeMobileMenu();
+    refitAfterDockTransition();
+}
+
+// Bring the options menu back once the animation finishes, and refit the
+// sculpture so it stays clear of the reopened controls.
+function restoreMenuAfterAnimation() {
+    if (interaction.menuRestoreMobile) {
+        interaction.menuRestoreMobile = false;
+        openMobileMenu();
+    }
+    if (interaction.menuRestoreDesktop) {
+        interaction.menuRestoreDesktop = false;
+        expandDock();
+    }
+    refitAfterDockTransition();
 }
 
 // ─────────────────────────────────────────────
@@ -3038,6 +3185,22 @@ function setupUI() {
     const dockToggleBtn = document.getElementById('dock-toggle-btn');
     const hintDismissBtn = document.getElementById('hint-dismiss');
 
+    // Wordmark flourish: click/tap dissolves the letters like particles, then
+    // reforms them in place. Re-triggering restarts the animation cleanly.
+    const wordmark = document.getElementById('wordmark');
+    if (wordmark) {
+        wordmark.addEventListener('click', () => {
+            if (isMotionReduced) return;
+            wordmark.classList.remove('is-playing');
+            void wordmark.offsetWidth; // restart the animation
+            wordmark.classList.add('is-playing');
+            clearTimeout(interaction.wordmarkTimer);
+            interaction.wordmarkTimer = setTimeout(() => {
+                wordmark.classList.remove('is-playing');
+            }, 1800);
+        });
+    }
+
     if (menuToggleBtn) {
         menuToggleBtn.addEventListener('click', () => {
             toggleMobileMenu();
@@ -3074,9 +3237,14 @@ function setupUI() {
         dockToggleBtn.addEventListener('click', () => {
             const dock = document.getElementById('dock');
             if (!dock) return;
-            const collapsed = dock.classList.toggle('collapsed');
-            dockToggleBtn.setAttribute('aria-expanded', (!collapsed).toString());
-            dockToggleBtn.title = collapsed ? 'Expand controls' : 'Collapse controls';
+            if (dock.classList.contains('collapsed')) {
+                expandDock();
+            } else {
+                collapseDock();
+            }
+            // Refit the sculpture so it keeps its margins around the menu in
+            // whichever state the dock ends up in (again once the transition ends).
+            refitAfterDockTransition();
         });
     }
 
@@ -3096,7 +3264,7 @@ function setupUI() {
     }
 
     // Context line default.
-    updateContextLine(CONTEXT_DEFAULT);
+    updateContextLine(contextForMode(state.messageMode));
 
     // Sync state to UI elements
     if (textInput) {
@@ -3175,6 +3343,10 @@ function setupUI() {
             await applyPresetExplosion(presetVal);
             setActivePreset(presetVal); // Highlight the selected preset chip
 
+            // Tuck the options menu away while the animation plays (it returns
+            // when the animation finishes).
+            closeMenuForAnimation();
+
             // Trigger the unique explosion
             triggerExplosion();
         });
@@ -3191,6 +3363,7 @@ function setupUI() {
             clearActivePresets();
             resetToDefaultExplosion();
             state.activeEmoji = emoji;
+            state.lastEmoji = emoji; // remember this choice for later Emoji-mode returns
             setEmojiActive(emoji);
             syncInputValues(emoji);
 
@@ -3423,6 +3596,7 @@ function animate() {
             }
             clearActivePresets();
             setAnimationControlsDisabled(false);
+            restoreMenuAfterAnimation();
         } else {
             // At peak, lock the contraction duration to the ACTUAL distance travelled
             // so recovery genuinely reflects how far particles flew.
@@ -3807,9 +3981,12 @@ async function init() {
     // A shared URL whose message is a list emoji keeps the high-detail rendering.
     if (CONFIG.emojiOptions.includes(initialText)) {
         state.activeEmoji = initialText;
+        state.lastEmoji = initialText;
         state.messageMode = 'emoji';
+        state.lastText = 'Bring your message!';
     } else {
         state.messageMode = 'text';
+        state.lastText = initialText;
     }
 
     // Apply initial state & check if text or param matches a preset
@@ -3903,6 +4080,8 @@ async function init() {
         state.currentFont = font;
         const isEmojiState = CONFIG.emojiOptions.includes(t);
         state.activeEmoji = isEmojiState ? t : null;
+        if (isEmojiState) state.lastEmoji = t;
+        else state.lastText = t;
         setMessageModeUI(isEmojiState ? 'emoji' : 'text'); // History stores text/emoji; images are local-only
         syncInputValues(t);
 

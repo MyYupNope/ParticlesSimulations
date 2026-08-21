@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForRender, waitForCameraSettle } from './helpers';
+import { waitForRender, waitForCameraSettle, fitMetrics } from './helpers';
 
 async function openPage(page, width, height, query = '/') {
     await page.setViewportSize({ width, height });
@@ -43,8 +43,12 @@ test('desktop: full-viewport stage with bottom dock, collapse toggle, and dismis
     expect(info.canvas.left).toBe(0);
     expect(info.canvas.width).toBeCloseTo(W, 0);
 
-    // Auto-fit zoom keeps the whole message visible.
-    expect(info.cam.right).toBeGreaterThan(41);
+    // Auto-fit zooms the sculpture to the largest size that stays within the
+    // stage margins (top bar + bottom dock + per-side margin).
+    const fit = await fitMetrics(page);
+    expect(fit.boxWpx).toBeLessThanOrEqual(fit.availW + 1);
+    expect(fit.boxHpx).toBeLessThanOrEqual(fit.availH + 1);
+    expect(Math.max(fit.boxWpx / fit.availW, fit.boxHpx / fit.availH)).toBeGreaterThan(0.9);
 
     // Bottom dock is visible, horizontally centered, and hugging the bottom.
     const dock = page.locator('#dock');
@@ -53,6 +57,11 @@ test('desktop: full-viewport stage with bottom dock, collapse toggle, and dismis
     expect(dockBox.x).toBeGreaterThan(W / 2 - dockBox.width / 2 - 5);
     expect(dockBox.x).toBeLessThan(W / 2 - dockBox.width / 2 + 5);
     expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(H - 5);
+
+    // Action controls stay inside the dock even when the settings row wraps.
+    const shareBox = await page.locator('#dock .share-btn').boundingBox();
+    expect(shareBox.x).toBeGreaterThanOrEqual(dockBox.x);
+    expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(dockBox.x + dockBox.width + 1);
 
     // Dock collapse toggle hides the control body and flips back.
     await page.click('#dock-toggle-btn');
@@ -77,6 +86,78 @@ test('desktop: full-viewport stage with bottom dock, collapse toggle, and dismis
     }));
     expect(Math.abs(u.x)).toBeLessThan(0.01);
     expect(Math.abs(u.y)).toBeLessThan(0.01);
+});
+
+test('desktop: dock is organized into Object, Animations, Sharing and Instructions sections', async ({ page }) => {
+    await openPage(page, 1280, 720);
+
+    const headings = await page.$$eval('#dock .dock-section-heading', els => els.map(e => e.textContent.trim()));
+    expect(headings).toEqual(['Object', 'Animations', 'Instructions', 'Sharing']);
+
+    // Object: Content (message type + input), Theme, Font.
+    await expect(page.locator('#dock #text-input')).toBeVisible();
+    await expect(page.locator('#dock .theme-swatch').first()).toBeVisible();
+    await expect(page.locator('#dock #font-select')).toBeVisible();
+
+    // Animations: Simulations (presets) + Sound.
+    await expect(page.locator('#dock .preset-chip').first()).toBeVisible();
+    await expect(page.locator('#dock .audio-btn')).toBeVisible();
+
+    // Sharing: Capture + Share.
+    await expect(page.locator('#dock .capture-btn')).toBeVisible();
+    await expect(page.locator('#dock .share-btn')).toBeVisible();
+
+    // Instructions: Rotate / Zoom / Explode.
+    await expect(page.locator('#dock .dock-instructions')).toBeVisible();
+    const instructions = await page.$$eval('#dock .dock-instructions dt', els => els.map(e => e.textContent.trim()));
+    expect(instructions).toEqual(['Rotate', 'Zoom', 'Explode']);
+
+    // Object and Animations sit side by side (same vertical band, Object to the
+    // left of Animations); Sharing and Instructions share the row below.
+    const boxes = await page.evaluate(() => {
+        const sections = Array.from(document.querySelectorAll('#dock .dock-section'));
+        const rect = s => s.getBoundingClientRect();
+        const obj = rect(sections[0]);
+        const anim = rect(sections[1]);
+        const instruct = rect(sections[2]);
+        const share = rect(sections[3]);
+        return {
+            obj: { x: obj.x, right: obj.right, top: obj.top, bottom: obj.bottom },
+            anim: { x: anim.x, right: anim.right, top: anim.top, bottom: anim.bottom },
+            share: { x: share.x, right: share.right, top: share.top, bottom: share.bottom },
+            instruct: { x: instruct.x, right: instruct.right, top: instruct.top, bottom: instruct.bottom }
+        };
+    });
+    expect(boxes.obj.right).toBeLessThan(boxes.anim.x + 1);           // Object left of Animations
+    expect(Math.abs(boxes.obj.top - boxes.anim.top)).toBeLessThan(2); // same top band
+    expect(boxes.instruct.right).toBeLessThan(boxes.share.x + 1);     // Instructions left of Sharing
+    expect(Math.abs(boxes.instruct.top - boxes.share.top)).toBeLessThan(2); // same top band
+    expect(boxes.instruct.top).toBeGreaterThan(boxes.obj.bottom - 1); // lower row below the top row
+});
+
+test('mobile: drawer is organized into Object, Animations and Sharing sections', async ({ page }) => {
+    const W = 390, H = 844;
+    await openPage(page, W, H);
+
+    await page.click('#menu-toggle-btn');
+    const drawer = page.locator('#drawer');
+    await expect(drawer).toHaveClass(/open/);
+
+    const headings = await drawer.locator('h2').allTextContents();
+    expect(headings.map(h => h.trim())).toEqual(['OBJECT', 'ANIMATIONS', 'SHARING']);
+
+    // Object: Content, Theme, Font.
+    await expect(drawer.locator('.message-option').first()).toBeVisible();
+    await expect(drawer.locator('.theme-swatch').first()).toBeVisible();
+    await expect(drawer.locator('#drawer-font-select')).toBeVisible();
+
+    // Animations: Simulations + Sound.
+    await expect(drawer.locator('.preset-chip').first()).toBeVisible();
+    await expect(drawer.locator('.audio-btn')).toBeVisible();
+
+    // Sharing: Capture + Share.
+    await expect(drawer.locator('.capture-btn')).toBeVisible();
+    await expect(drawer.locator('.share-btn')).toBeVisible();
 });
 
 test('mobile: hamburger drawer with 1s auto-close after selection and always-visible input bar', async ({ page }) => {
