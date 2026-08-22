@@ -3198,19 +3198,22 @@ function setupUI() {
     const dockToggleBtn = document.getElementById('dock-toggle-btn');
     const hintDismissBtn = document.getElementById('hint-dismiss');
 
-    // Wordmark flourish: click/tap dissolves the letters like particles, then
-    // reforms them in place. Re-triggering restarts the animation cleanly.
+    // Wordmark flourish: click/tap alternates between a dissolve-and-reform
+    // particle burst and a ripple-cascade wave through the letters.
     const wordmark = document.getElementById('wordmark');
     if (wordmark) {
+        let useRipple = false;
         wordmark.addEventListener('click', () => {
             if (isMotionReduced) return;
-            wordmark.classList.remove('is-playing');
+            useRipple = !useRipple;
+            const animClass = useRipple ? 'is-rippling' : 'is-playing';
+            wordmark.classList.remove('is-playing', 'is-rippling');
             void wordmark.offsetWidth; // restart the animation
-            wordmark.classList.add('is-playing');
+            wordmark.classList.add(animClass);
             clearTimeout(interaction.wordmarkTimer);
             interaction.wordmarkTimer = setTimeout(() => {
-                wordmark.classList.remove('is-playing');
-            }, 1800);
+                wordmark.classList.remove('is-playing', 'is-rippling');
+            }, useRipple ? 1400 : 1800);
         });
     }
 
