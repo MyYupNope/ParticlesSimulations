@@ -183,11 +183,6 @@ const CONFIG = {
             explosionMaxDistMultiplier: 22.0,
             motionStyle: 3, // Cinematic 3D Surf Wave: 3/4 Perspective Glide + Spatial Audio + Luminous Crest
             trailStrength: 0.70,
-            heat: {
-                cold: [0.08, 0.22, 0.52], // Deep oceanic blue in troughs & shadows
-                warm: [0.25, 0.78, 0.88], // Radiant aquamarine surf on wave face
-                hot: [1.0, 0.98, 0.88]    // Luminous sunlight crest & sparkling foam peak
-            },
             emberBudget: 0,
             soundPitch: 45,
             soundDuration: 7.5,
@@ -212,11 +207,6 @@ const CONFIG = {
             funnelFadeStart: 0.03,
             funnelFadeEnd: 0.30,
             trailStrength: 0.75,
-            heat: {
-                cold: [0.08, 0.18, 0.45],  // Deep storm blue
-                warm: [0.92, 0.82, 0.28],  // Luminous golden accretion filament (Image 2)
-                hot: [1.0, 0.98, 0.90]     // White-hot lightning vortex core highlight
-            },
             emberBudget: 90,
             soundPitch: 75,
             soundDuration: 15.0,
@@ -225,20 +215,10 @@ const CONFIG = {
                                                                         BREEZE: {
             description: 'A wind field bends, rolls and disperses your message like leaves in a gust.',
             expansionDuration: 1.0,
-            groundPauseDuration: 2.0,
-            liftDuration: 3.6,
-            settleDuration: 3.6,
             contractionDuration: 1.6,
             explosionMaxDistMultiplier: 28.0,
             motionStyle: 2, // 4-phase breeze: Straight Fall (1.0s) -> 2s Ground Rest (1.0-3.0s) -> Braided Leaf Breeze (3.0-6.6s) -> Reverse Flow to Floor (6.6-10.2s) -> Reverse Drop Elevation Home (10.2-11.8s)
-            gustCoherence: 0.94,
-            windSpeed: 24.0,
             trailStrength: 0.60,
-            heat: {
-                cold: [0.15, 0.35, 0.65],  // Oceanic breeze blue
-                warm: [0.85, 0.45, 0.35],  // Warm terracotta ground scatter (Image 1 & 2)
-                hot: [0.95, 0.92, 0.85]     // Crisp sunlight highlight
-            },
             emberBudget: 0,
             soundPitch: 95,
             soundDuration: 11.8,
@@ -252,11 +232,6 @@ const CONFIG = {
             explosionMaxDistMultiplier: 36.0,
             motionStyle: 0, // uniform sphere
             trailStrength: 0.3,
-            heat: {
-                cold: [0.45, 0.05, 0.05],
-                warm: [1.0, 0.45, 0.08],
-                hot: [1.0, 0.85, 0.4]
-            },
             emberBudget: 140,
             soundPitch: 110,
             soundDuration: 6.2,
@@ -269,11 +244,6 @@ const CONFIG = {
             explosionMaxDistMultiplier: 30.0,
             motionStyle: 4, // 3-phase ~16s trefoil torus knot: Collapse (0-3) -> Knot Flow (3-11.5) -> Reformation (11.5-16)
             trailStrength: 0.8,
-            heat: {
-                cold: [0.10, 0.04, 0.28],
-                warm: [1.0, 0.42, 0.10],
-                hot: [0.92, 0.96, 1.0]
-            },
             emberBudget: 50,
             soundPitch: 40,
             soundDuration: 16.0,
@@ -286,11 +256,6 @@ const CONFIG = {
             explosionMaxDistMultiplier: 30.0,
             motionStyle: 5, // 4-phase ~14s flock: Take-off (0-2) -> Flight + predator dodges (2-9) -> Settle (9-12) -> Landing (12-14)
             trailStrength: 0.35,
-            heat: {
-                cold: [0.16, 0.22, 0.42],
-                warm: [0.95, 0.62, 0.25],
-                hot: [1.0, 0.97, 0.88]
-            },
             emberBudget: 0,
             soundPitch: 70,
             soundDuration: 14.0,
@@ -314,13 +279,7 @@ const CONFIG = {
             funnelCrownT: 0,
             funnelFadeStart: 0,
             funnelFadeEnd: 0,
-            gustCoherence: 0,
             trailStrength: 0.25,
-            heat: {
-                cold: [0.1, 0.4, 1.0],
-                warm: [1.0, 1.0, 0.1],
-                hot: [1.0, 0.1, 0.1]
-            },
             soundPitch: 140,
             soundDuration: 1.5,
             soundType: 'sine'
@@ -349,11 +308,9 @@ const DIRECTIONS_VERIFY = 384;
 // Tracks the actual travel radius in the CPU-fallback path (worker path uses its own).
 let fallbackMaxTravelSq = 0;
 
-// Shared gust direction and perpendicular plane for Breeze wave undulations
+// Shared gust direction for Breeze wave undulations
 let gustX = 1, gustY = 0, gustZ = 0;
 let activeBreezeConfig = null;
-let gustPerpX = 0, gustPerpY = 1, gustPerpZ = 0;
-let activeGustX = 1, activeGustY = 0;
 
 // Measured world-space bounding box of the current sculpture (set on every
 // particle rebuild). Drives the unified max-fit framing for text, emoji, and
@@ -1161,13 +1118,7 @@ const state = {
         funnelCrownT: CONFIG.presets.DEFAULT.funnelCrownT,
         funnelFadeStart: CONFIG.presets.DEFAULT.funnelFadeStart,
         funnelFadeEnd: CONFIG.presets.DEFAULT.funnelFadeEnd,
-        gustCoherence: 0,
         trailStrength: 0.25,
-        heat: {
-            cold: [0.1, 0.4, 1.0],
-            warm: [1.0, 1.0, 0.1],
-            hot: [1.0, 0.1, 0.1]
-        },
         soundPitch: 140,
         soundDuration: 1.5,
         soundType: 'sine'
@@ -1195,7 +1146,7 @@ const state = {
             return 7.5;
         }
         if (style === 4) {
-            // 4-Phase Black Hole: Collapse (3.5s) + Accretion (4.5s) + Jets (4.0s) + Reformation (4.0s) = 16.0s
+            // Trefoil torus knot: Collapse (0-3) -> Knot Flow (3-11.5) -> Reformation (11.5-16) = 16.0s
             return 16.0;
         }
         if (style === 5) {
@@ -2616,8 +2567,6 @@ function randomizeExplosionVectors() {
             rx = gx * 0.92 + (Math.random() * 2 - 1) * 0.08;
             ry = (Math.random() * 2 - 1) * 0.12;
             rz = (Math.random() * 2 - 1) * 0.12;
-            activeGustX = gx;
-            activeGustY = gy;
             gustX = gx; gustY = gy; gustZ = gz;
         } else if (style === 3) {
             // Starburst rays: each particle snaps onto one of `spokes` crisp 3D
@@ -2865,7 +2814,6 @@ function applyPresetPhysics(preset) {
         funnelFadeEnd: (preset.funnelFadeEnd != null) ? preset.funnelFadeEnd : 0,
         vortexDuration: (preset.vortexDuration != null) ? preset.vortexDuration : 4.5,
         equilibriumDuration: (preset.equilibriumDuration != null) ? preset.equilibriumDuration : 3.5,
-        gustCoherence:(preset.gustCoherence != null)? preset.gustCoherence: 0,
         swayAmp:      (preset.swayAmp != null)      ? preset.swayAmp      : 0,
         swayFreq:     (preset.swayFreq != null)     ? preset.swayFreq     : 0,
         gustAmp:      (preset.gustAmp != null)      ? preset.gustAmp      : 0,

@@ -14,7 +14,7 @@ The project is a **vanilla JS/HTML** app (no component framework) built around a
 - **GLSL Vertex Shaders** — hardware-accelerated per-particle styling, heat maps, and motion (`js/shaders.js`)
 - **Web Workers** — multi-threaded physics fallback with zero-copy double-buffered `Float32Array` slots (`js/physics.worker.js`)
 - **Shared Math Kernel** — `js/physics-math.js` is the single source of truth for kinematics, used by both the Web Worker and the CPU fallback so trajectories stay identical
-- **Web Audio API** — procedural audio synthesis (ocean waves, tornado howl, wind, explosion boom) (`js/audio.js`)
+- **Web Audio API** — procedural audio synthesis for all 6 presets (ocean waves, tornado howl, breeze, blast, torus drone, starling flutter) (`js/audio.js`)
 - **Tailwind CSS v4** — utility-first UI styling with custom `@theme` tokens and `@custom-variant` state utilities, processed at build time via the `@tailwindcss/vite` plugin
 - **Vite 5** — fast dev server and production builds, with shareable state via URL query params
 - **Playwright** — end-to-end smoke, performance, and interaction tests (14 specs) driven through a `window.__artzDebug` test hook
