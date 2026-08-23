@@ -6,7 +6,8 @@ import { waitForRender } from './helpers';
 // vectors directly — deterministic and immune to the frame-rate/timing jitter of
 // headless software WebGL under parallel load. Expected styles:
 // 0 = EXPLODE (uniform sphere), 1 = TORNADO (screen-space funnel in X/Z swirl
-// with screen-up Y lift), 2 = BREEZE (strong coherent gust), 3 = KINETIC rays.
+// with screen-up Y lift), 2 = BREEZE (strong coherent gust), 3 = KINETIC rays,
+// 4 = TORUS (trefoil torus knot), 5 = MURMURATION (flock).
 async function getPattern(page, url, chip, expectedStyle) {
     await page.goto(url);
     await waitForRender(page);
@@ -138,6 +139,48 @@ test('TORNADO funnel shape has a broad crown over a waist over a fading tail @sl
 test('BREEZE preset flows in one coherent horizontal direction', async ({ page }) => {
     assertBreeze((await getPattern(page, '/', 'BREEZE', 2)).dirs);
 });
+
+test('TORUS preset triggers cleanly in trefoil mode', async ({ page }) => {
+    const { dirs } = await getPattern(page, '/', 'TORUS', 4);
+    expect(dirs.length).toBeGreaterThan(50);
+});
+
+test('MURMURATION preset triggers cleanly in flock mode', async ({ page }) => {
+    const { dirs } = await getPattern(page, '/', 'MURMURATION', 5);
+    expect(dirs.length).toBeGreaterThan(50);
+});
+
+test('TORUS runs its full cycle without console errors and recovers', async ({ page }) => {
+    const consoleErrors = [];
+    const pageErrors = [];
+    page.on('console', msg => {
+        if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    page.on('pageerror', err => pageErrors.push(String(err)));
+
+    await page.goto('/');
+    await waitForRender(page);
+
+    await page.click('[data-text="TORUS"]');
+
+    // Assert physics worker remains active without error fallback
+    expect(await page.evaluate(() => window.__artzDebug.usingWorker)).toBe(true);
+
+    // Wait for the full ~16s torus knot cycle to complete
+    await page.waitForFunction(() => !window.__artzDebug.snapshot(1).explosionActive, null, {
+        timeout: 24_000
+    });
+
+    // The context line returns to the default hint after the cycle
+    await page.waitForFunction(() => {
+        const el = document.querySelector('#context-line');
+        return el && el.textContent.includes('Type a message');
+    }, null, { timeout: 10_000 });
+
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+});
+
 test('BREEZE triggers cleanly on Web Worker without console errors and recovers promptly', async ({ page }) => {
     const consoleErrors = [];
     const pageErrors = [];

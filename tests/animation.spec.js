@@ -122,7 +122,8 @@ test('Space-triggered explosion surfaces the animation info and tucks the menu l
     expect(line).not.toContain('Type a message');
 
     // After the animation finishes the menu comes back and the hint returns.
-    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === false, null, { timeout: 15000 });
+    // (Random pool includes the ~16s TORUS preset, hence the generous wait.)
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === false, null, { timeout: 22000 });
     await expect(dock).not.toHaveClass(/collapsed/);
     const lineAfter = await page.$eval('#context-line', el => el.textContent);
     expect(lineAfter).toContain('Type a message');
@@ -143,7 +144,7 @@ test('dbl-tap explosion surfaces the animation info and tucks the menu like a pr
     expect(line.trim().length).toBeGreaterThan(0);
     expect(line).not.toContain('Type a message');
 
-    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === false, null, { timeout: 15000 });
+    await page.waitForFunction(() => window.__artzDebug.snapshot(1).explosionActive === false, null, { timeout: 22000 });
     await expect(dock).not.toHaveClass(/collapsed/);
     const lineAfter = await page.$eval('#context-line', el => el.textContent);
     expect(lineAfter).toContain('Type a message');

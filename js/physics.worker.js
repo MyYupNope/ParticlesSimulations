@@ -1,6 +1,6 @@
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Physics Web Worker — Multi-threaded Particle Engine
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Offloads O(N) spring relaxation, explosion trajectory calculations, and mouse
 // repulsion from the main UI thread, ensuring a rock-solid 60 FPS even with 30k+
 // particles. Operates via double-buffered Float32Arrays transferred with zero-copy.
@@ -9,7 +9,9 @@ import {
     evaluateTornadoParticle,
     evaluateBreezeParticle,
     evaluateKineticParticle,
-    evaluateExplosionParticle
+    evaluateExplosionParticle,
+    evaluateTorusParticle,
+    evaluateMurmurationParticle
 } from './physics-math.js';
 
 let posHome = null;             // Initial rest coordinates (persistent Float32Array)
@@ -212,6 +214,20 @@ self.onmessage = function (e) {
                     bx = _workerRes.x; by = _workerRes.y; bz = _workerRes.z;
                 } else if (activeStyle === 3) {
                     evaluateKineticParticle(
+                        i, posHome[ix], posHome[iy], posHome[iz],
+                        (randomSpeed ? randomSpeed[i] : 1.0) * 0.35 + 0.85,
+                        elapsed, pattern, _workerRes
+                    );
+                    bx = _workerRes.x; by = _workerRes.y; bz = _workerRes.z;
+                } else if (activeStyle === 4) {
+                    evaluateTorusParticle(
+                        i, posHome[ix], posHome[iy], posHome[iz],
+                        (randomSpeed ? randomSpeed[i] : 1.0) * 0.35 + 0.85,
+                        elapsed, pattern, _workerRes
+                    );
+                    bx = _workerRes.x; by = _workerRes.y; bz = _workerRes.z;
+                } else if (activeStyle === 5) {
+                    evaluateMurmurationParticle(
                         i, posHome[ix], posHome[iy], posHome[iz],
                         (randomSpeed ? randomSpeed[i] : 1.0) * 0.35 + 0.85,
                         elapsed, pattern, _workerRes

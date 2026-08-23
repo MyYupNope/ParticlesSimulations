@@ -12,7 +12,9 @@ import {
     evaluateTornadoParticle,
     evaluateBreezeParticle,
     evaluateKineticParticle,
-    evaluateExplosionParticle
+    evaluateExplosionParticle,
+    evaluateTorusParticle,
+    evaluateMurmurationParticle
 } from './physics-math.js';
 import {
     Clock,
@@ -34,9 +36,9 @@ import {
     LinearFilter
 } from 'three';
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Named Configuration Constants
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Frustum angle that mirrors the old perspective camera's framing.
 const CAMERA_ANGLE_DEG = 75;
 
@@ -75,7 +77,7 @@ const CONFIG = {
     emojiFontSize: 280,       // glyph size within the emoji raster (px)
     emojiEdgeStep: 1,         // feature/silhouette edge samples (full density)
     emojiInteriorStep: 2,     // interior fill samples (halves density, keeps detail)
-    emojiDensityOverride: 1,  // one particle per sampled cell → max detail under the cap
+    emojiDensityOverride: 1,  // one particle per sampled cell -> max detail under the cap
     emojiColorEdgeThreshold: 64, // max RGB-channel delta that marks an internal color boundary
     emojiJitterXY: 0.03,      // flatter layout so thin features (tears, eyes) stay continuous
     emojiJitterZ: 0.5,        // per-layer jitter (much smaller than layer spacing)
@@ -170,7 +172,9 @@ const CONFIG = {
 
     // Unique preset configurations for custom particle physics and Web Audio properties.
     // Pattern styles: 0 = uniform sphere (Explode), 1 = screen-space funnel
-    // (Tornado), 2 = coherent wind gust (Breeze), 3 = crisp starburst rays (Kinetic).
+    // (Tornado), 2 = coherent wind gust (Breeze), 3 = crisp starburst rays (Kinetic),
+    // 4 = black hole trefoil torus knot (Torus), 5 = starling flock (Murmuration).
+    // Styles 4 and 5 run on the JS kinematics path (worker/CPU), never the GPU shader path.
     presets: {
         KINETIC: {
             description: 'A 3D surf wave rolls through your message — luminous crest, deep blue troughs.',
@@ -258,6 +262,40 @@ const CONFIG = {
             soundDuration: 6.2,
             soundType: 'sine'
         },
+        TORUS: {
+            description: 'Gravity forges your message into a flowing torus knot of light around a black hole, then lets it rain back home.',
+            expansionDuration: 8.0,   // embers fire at jet ignition (8s)
+            contractionDuration: 4.0,
+            explosionMaxDistMultiplier: 30.0,
+            motionStyle: 4, // 3-phase ~16s trefoil torus knot: Collapse (0-3) -> Knot Flow (3-11.5) -> Reformation (11.5-16)
+            trailStrength: 0.8,
+            heat: {
+                cold: [0.10, 0.04, 0.28],
+                warm: [1.0, 0.42, 0.10],
+                hot: [0.92, 0.96, 1.0]
+            },
+            emberBudget: 50,
+            soundPitch: 40,
+            soundDuration: 16.0,
+            soundType: 'sine'
+        },
+        MURMURATION: {
+            description: 'Your message takes flight — a living starling flock sweeps the sky, dodges, and returns.',
+            expansionDuration: 2.0,
+            contractionDuration: 2.0,
+            explosionMaxDistMultiplier: 30.0,
+            motionStyle: 5, // 4-phase ~14s flock: Take-off (0-2) -> Flight + predator dodges (2-9) -> Settle (9-12) -> Landing (12-14)
+            trailStrength: 0.35,
+            heat: {
+                cold: [0.16, 0.22, 0.42],
+                warm: [0.95, 0.62, 0.25],
+                hot: [1.0, 0.97, 0.88]
+            },
+            emberBudget: 0,
+            soundPitch: 70,
+            soundDuration: 14.0,
+            soundType: 'sine'
+        },
         DEFAULT: {
             expansionDuration: 1.2,
             driftDuration: 3.0,
@@ -290,17 +328,17 @@ const CONFIG = {
     }
 };
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // [1.2] mediaQuery Caching
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let isMotionReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', e => {
     isMotionReduced = e.matches;
 });
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Web Worker for Offloaded Physics Calculation
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let physicsWorker = null;
 
 // Number of leading particles whose generated blast directions are echoed back from
@@ -322,9 +360,9 @@ let activeGustX = 1, activeGustY = 0;
 // image messages so all three honour the same screen margins.
 let contentBox = { w: 80, h: 80 };
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Shaders (GPU-Native Kinematics Engine)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 const vertexShader = `
 uniform vec3 uMouse;
 uniform float uMouseInfluence;
@@ -368,6 +406,19 @@ uniform float uFunnelCrownExp;
 uniform float uBreezeBlowDir;
 uniform float uBreezeIntensity;
 uniform float uBreezeSwirl;
+// Murmuration randomized flight plan (per-blast, written by triggerExplosion)
+uniform float uMSweepX;
+uniform float uMSweepY;
+uniform float uMSweepZ;
+uniform float uMFreqX;
+uniform float uMFreqY;
+uniform float uMFreqZ;
+uniform float uMPhX;
+uniform float uMPhY;
+uniform float uMPhZ;
+uniform float uMLaunchDir;
+// Torus knot auto-calibration (world units, from the camera frustum)
+uniform float uKnotScale;
 uniform vec3 uMouseWorld;
 uniform float uMousePushDistance;
 uniform float uMouseActive;
@@ -490,7 +541,7 @@ vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPo
         return gPos;
     }
 
-    // ── Option 1: 3D Spiral Ribbons & Braided Filaments ──
+    // -- Option 1: 3D Spiral Ribbons & Braided Filaments --
     float ribbonId = mod(i, 3.0);
     float ribbonPhase = ribbonId * 2.094395; // 2*PI/3
     float braidWavelength = 0.15;
@@ -501,7 +552,7 @@ vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPo
     float braidZ = braidRadius * cos(braidAngle);
     float braidX = gx * (braidRadius * 0.55 * sin(braidAngle * 0.5));
 
-    // ── Option 6: Floating Leaf Flutter & Pendulum Gliding ──
+    // -- Option 6: Floating Leaf Flutter & Pendulum Gliding --
     float leafRockFreq = 3.6 + (mod(i * 41.73, 100.0) / 100.0) * 2.0;
     float leafPhase = (mod(i * 67.89, 100.0) / 100.0) * 6.28318;
     float pendulumAngle = leafRockFreq * curElapsed + leafPhase;
@@ -512,7 +563,7 @@ vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPo
 
     float leafWobble = sin(9.5 * curElapsed + i * 0.35) * 0.40 * intensity * min(1.0, localT);
 
-    // ── Swirl / Whirlwind Vortex Dynamics (Randomized from 0.0 to 1.4+) ──
+    // -- Swirl / Whirlwind Vortex Dynamics (Randomized from 0.0 to 1.4+) --
     float swirlSign = (mod(i * 29.17, 10.0) > 5.0) ? 1.0 : -1.0;
     float swirlAngle = 0.12 * (gPos.x * gx) - 3.8 * curElapsed * swirlSign + (mod(i * 31.41, 100.0) / 100.0) * 6.28318;
     float swirlEnvelope = sin(3.14159265 * pLocal);
@@ -522,14 +573,14 @@ vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPo
     float swirlX = gx * (swirlRadius * 0.35 * cos(swirlAngle * 2.0));
 
     if (lambda > 0.82) {
-        // ── Strata C: Ground Skittering Leaves (Tumbling along floor) ──
+        // -- Strata C: Ground Skittering Leaves (Tumbling along floor) --
         float groundSpeed = (3.2 + 6.0 * windSpeedMult) * intensity;
         float groundDist = groundSpeed * (localT * 0.85 + 0.08 * localT * localT);
         float groundSkip = (0.35 * abs(sin(pendulumAngle)) + 0.10 * sin(curElapsed * 10.0 + i)) * min(1.0, localT);
         float groundZDrift = (0.75 * sin(pendulumAngle * 0.6) + leafWobble + swirlZ * 0.25) * min(1.0, localT);
         return vec3(gPos.x + gx * groundDist + leafGlideX * 0.4 + swirlX * 0.25, max(gPos.y, gPos.y + groundSkip), gPos.z + groundZDrift);
     } else {
-        // ── Strata A & B: Airborne Braided Ribbon Streams + Floating Leaf Gliding + Swirl Vortex ──
+        // -- Strata A & B: Airborne Braided Ribbon Streams + Floating Leaf Gliding + Swirl Vortex --
         float indLiftStart = liftStart * 0.50;
         float liftProg = min(1.0, max(0.0, (pLocal - indLiftStart) / (1.0 - indLiftStart + 1e-4)));
         float eLift = liftProg * liftProg * (3.0 - 2.0 * liftProg);
@@ -645,6 +696,290 @@ vec3 evalExplosionGPU(vec3 home, vec3 rDir, float rSpeed, float maxDist, float e
     return home + rDir * (dist * rSpeed);
 }
 
+// Style 4: black hole trefoil — vortex suck-in, flowing (2,3) torus knot,
+// spiral rain home. Mirrors evaluateTorusParticle in physics-math.js.
+vec3 evalTorusGPU(float i, vec3 home, float cd, float elapsed) {
+    float t1 = 3.0;
+    float T123 = 11.5;
+    float t4 = 4.5;
+
+    float hA = mod(i * 37.119, 100.0) / 100.0;
+    float hB = mod(i * 61.19, 100.0) / 100.0;
+    float hD = mod(i * 29.17, 100.0) / 100.0;
+    float hE = mod(i * 53.17, 100.0) / 100.0;
+    float hF = mod(i * 91.73, 100.0) / 100.0;
+
+    // Precessing frame: tiltX≈60° puts the knot plane nearly face-on to the
+    // camera (nn_z=sin(tiltX)) — projects as the woven 3-lobe clover
+    float tiltX = 1.05 + 0.04 * sin(0.35 * elapsed);
+    float tiltZ = 0.07 + 0.02 * cos(0.30 * elapsed);
+    float cTx = cos(tiltX);
+    float sTx = sin(tiltX);
+    float cTz = cos(tiltZ);
+    float sTz = sin(tiltZ);
+    vec3 ex = vec3(cTz, sTz, 0.0);
+    vec3 ez = normalize(vec3(-sTz * sTx, cTz * sTx, cTx));
+    vec3 nn = cross(ex, ez);
+
+    // Trefoil as (2,3) torus knot — face-on woven clover like the reference.
+    float S = uKnotScale > 0.0 ? uKnotScale : 11.0;
+    float RK = S * 0.62;
+    float rK = S * 0.34;
+    float rt = S * 0.15 * (1.0 + 0.03 * sin(1.2 * elapsed));
+
+    // Slow flow along the knot for readability
+    float u = hA * 6.28318 + 0.14 * elapsed * cd;
+
+    // Path point and analytic tangent (local frame; z along nn)
+    float ringM = RK + rK * cos(3.0 * u);
+    vec3 cPath = vec3(ringM * cos(2.0 * u), ringM * sin(2.0 * u), rK * sin(3.0 * u));
+    vec3 tanL = vec3(
+        -3.0 * rK * sin(3.0 * u) * cos(2.0 * u) - 2.0 * ringM * sin(2.0 * u),
+        -3.0 * rK * sin(3.0 * u) * sin(2.0 * u) + 2.0 * ringM * cos(2.0 * u),
+        3.0 * rK * cos(3.0 * u));
+
+    mat3 basis = mat3(ex, ez, nn);
+    vec3 core = cPath * basis;
+    vec3 T = normalize(tanL * basis);
+
+    float phi = hF * 6.28318 + 0.18 * elapsed * cd;
+    // Solid rope cross-section — one wall per strand, reads as a single tube
+    float rtI = rt * sqrt(hE);
+    vec3 tN = normalize(nn - dot(nn, T) * T);
+    vec3 tB = cross(T, tN);
+    vec3 kp = core + rtI * (cos(phi) * tN + sin(phi) * tB);
+
+    vec3 p;
+    if (elapsed < t1) {
+        // Phase 1: vortex collapse — home swings around the axis onto the knot
+        float p1 = clamp((elapsed - hB * 0.35) / 2.65, 0.0, 1.0);
+        float e1 = p1 * p1 * p1 * (p1 * (p1 * 6.0 - 15.0) + 10.0);
+        // The home endpoint swirls gently around the knot axis mid-flight —
+        // small angle so the eye sees ONE tube forming, never orbit rings.
+        float aR = 0.9 * cd * sin(3.14159265 * e1);
+        float cR = cos(aR), sR = sin(aR);
+        float dN = dot(nn, home);
+        vec3 cr = cross(nn, home);
+        vec3 h2 = home * cR + cr * sR + nn * dN * (1.0 - cR);
+        p = mix(h2, kp, e1);
+    } else if (elapsed < T123) {
+        // Phase 2: knot flow — streaming along the living knot
+        p = kp;
+    } else {
+        // Phase 3: reformation — release swirl, spiral rain back home
+        float p4 = clamp((elapsed - T123 - hD * 0.25) / 4.25, 0.0, 1.0);
+        float e4 = p4 * p4 * p4 * (p4 * (p4 * 6.0 - 15.0) + 10.0);
+        float aR = 0.9 * cd * sin(3.14159265 * e4);
+        float cR = cos(aR), sR = sin(aR);
+        float dN = dot(nn, kp);
+        vec3 cr = cross(nn, kp);
+        vec3 k2 = kp * cR + cr * sR + nn * dN * (1.0 - cR);
+        p = mix(k2, home, e4);
+    }
+    // Turntable yaw about the world vertical (Y) axis: exactly ONE full
+    // revolution during Knot Flow, holding aligned before and after so the
+    // message always lands upright. Shows the knot's full 3D structure.
+    float yawU = clamp((elapsed - t1) / (T123 - t1), 0.0, 1.0);
+    float yawS = yawU * yawU * yawU * (yawU * (yawU * 6.0 - 15.0) + 10.0);
+    float yawA = 6.28318530718 * yawS;
+    float cyw = cos(yawA);
+    float syw = sin(yawA);
+    p = vec3(cyw * p.x + syw * p.z, p.y, -syw * p.x + cyw * p.z);
+    return p;
+}
+
+// Style 5: starling flock — randomized flight plan, sub-swarms, streaming,
+// predator dodges. Mirrors evaluateMurmurationParticle in physics-math.js.
+vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
+        float swX, float swY, float swZ,
+        float fX, float fY, float fZ,
+        float phX, float phY, float phZ, float launchDir) {
+    float t1 = 2.0;
+    float t2 = 7.0;
+    float t3 = 3.0;
+    float t4 = 2.0;
+    float T12 = 9.0;
+    float T123 = 12.0;
+
+    float p1h = mod(i * 37.119, 100.0) / 100.0;
+    float p2h = mod(i * 61.19, 100.0) / 100.0;
+    float p3h = mod(i * 83.11, 100.0) / 100.0;
+    float p4h = mod(i * 53.17, 100.0) / 100.0;
+    float p5h = mod(i * 71.53, 100.0) / 100.0;
+    float ph1 = p1h * 6.28318;
+    float ph2 = p2h * 6.28318;
+    float ph3 = p3h * 6.28318;
+
+    // Launch ripple sweeping across the message
+    float delay = (launchDir > 0.0 ? home.x + 50.0 : 50.0 - home.x) * 0.017 + p2h * 0.55;
+    float lt = elapsed - delay;
+    if (lt <= 0.0) return home;
+    float lbRaw = min(1.0, lt / 0.9);
+    float lb = lbRaw * lbRaw * (3.0 - 2.0 * lbRaw);
+    float hop = sin(lbRaw * 3.14159265) * 2.2;
+
+    float te = elapsed * cd;
+
+    // Flight-end constants keep settle/landing seamless for any plan
+    float endCx = swX * sin(fX + phX);
+    float endCy = swY * sin(fY + phY);
+    float endCz = swZ * sin(fZ + phZ);
+    float setCx = endCx * 0.25;
+    float setCy = endCy * 0.25 + 1.5;
+    float setCz = endCz * 0.25;
+    float kvx = swX * fX / 7.0;
+    float kvy = swY * fY / 7.0;
+    float kvz = swZ * fZ / 7.0;
+    float evx = kvx * cos(fX + phX);
+    float evy = kvy * cos(fY + phY) - 1.346;
+    float evz = kvz * cos(fZ + phZ);
+    float evlen = max(length(vec3(evx, evy, evz)), 1e-4);
+    vec3 evN = vec3(evx, evy, evz) / evlen;
+    float ea = 0.60 * min(1.0, evlen / 10.0);
+    float rFlightEnd = (11.0 + 3.4 * sin(0.85 * 9.0 + 0.7) + 1.7 * sin(1.65 * 9.0));
+
+    // Shared flock center path + analytic streaming direction
+    vec3 C;
+    vec3 vDir;
+    float churn;
+    float blobR;
+    float strA;
+    if (elapsed < T12) {
+        float u = max(0.0, (elapsed - t1) / t2);
+        C = vec3(
+            swX * sin(u * fX + phX),
+            swY * sin(u * fY + phY) + 3.0 * sin(u * 3.14159265),
+            swZ * sin(u * fZ + phZ));
+        churn = 1.0;
+        // Breathing flock volume: two superposed pulses swell and contract the
+        // whole cloud organically through the flight window.
+        blobR = 11.0 + 3.4 * sin(0.85 * elapsed + 0.7) + 1.7 * sin(1.65 * elapsed);
+        vec3 dv = vec3(
+            kvx * cos(u * fX + phX),
+            kvy * cos(u * fY + phY) + 1.346 * cos(u * 3.14159265),
+            kvz * cos(u * fZ + phZ));
+        vDir = normalize(dv + vec3(1e-6));
+        strA = 0.60 * min(1.0, length(dv) / 10.0);
+    } else if (elapsed < T123) {
+        float s0 = (elapsed - T12) / t3;
+        float s = s0 * s0 * (3.0 - 2.0 * s0);
+        C = vec3(endCx, endCy, endCz) * (1.0 - 0.75 * s) + vec3(0.0, 1.5 * s, 0.0);
+        churn = 1.0 - 0.7 * s;
+        blobR = rFlightEnd * (1.0 - 0.55 * s);
+        vDir = evN;
+        strA = ea * (1.0 - 0.75 * s);
+    } else {
+        float tau4 = elapsed - T123;
+        churn = 0.3 * (1.0 - min(1.0, tau4 / t4));
+        float sq = min(1.0, tau4 / 1.5); sq = sq * sq * (3.0 - 2.0 * sq);
+        vec3 hover = vec3(
+            1.6 * sin(te * 1.05 + ph1),
+            1.0 + sin(te * 0.83 + ph2),
+            1.2 * cos(te * 0.95 + ph3));
+        C = vec3(setCx, setCy, setCz) + (hover - vec3(setCx, setCy, setCz)) * sq;
+        blobR = rFlightEnd * 0.45;
+        vDir = evN;
+        strA = ea * 0.25 * (1.0 - min(1.0, tau4 / t4));
+    }
+
+    // Flock slot: center-weighted point inside the blob volume
+    float slotTh = ph1;
+    float cosPhi = 2.0 * p2h - 1.0;
+    float sinPhi = sqrt(max(0.0, 1.0 - cosPhi * cosPhi));
+    float slotMag = sqrt(p3h);
+
+    // Directional lobes: asymmetric bulges/folds defeat any sphere silhouette
+    float lobe = 1.0
+        + 0.30 * sin(2.2 * slotTh + 1.8 * cosPhi + 0.45 * te)
+        + 0.16 * cos(3.3 * slotTh - 2.4 * cosPhi + 0.62 * te);
+
+    vec3 slot = vec3(
+        slotMag * sinPhi * cos(slotTh),
+        slotMag * cosPhi * 0.72,
+        slotMag * sinPhi * sin(slotTh)) * (blobR * lobe);
+
+    // Sub-swarms: six overlapping clumps wandering semi-independently
+    float swId = floor(p5h * 6.0);
+    float swScale = blobR / 11.0;
+    float swAmp = (4.5 + 3.0 * p1h) * swScale;
+    vec3 swarmO = vec3(
+        sin(0.71 * swId + 0.50 * te + p5h * 6.28),
+        0.7 * sin(1.13 * swId + 0.38 * te + p2h * 6.28),
+        0.8 * cos(0.87 * swId + 0.45 * te + p3h * 6.28)) * swAmp;
+
+    // Velocity-aligned streaming: stretch along travel, trail behind
+    float along = dot(slot, vDir);
+    vec3 perp = slot - vDir * along;
+    float back = max(0.0, -along);
+    float shell = max(0.0, slotMag - 0.9) / 0.1;
+    float trail = (back * 1.7 + shell * 2.6) * strA * (0.55 + 0.45 * p4h) * swScale;
+    vec3 streamed = perp * 0.80 + vDir * (along * (1.0 + strA) - trail);
+
+    // Churn field keyed on slot position + wingbeat flutter
+    vec3 F = vec3(
+        5.6 * sin(0.40 * slot.y + 1.25 * te + ph1),
+        4.4 * sin(0.48 * slot.x - 1.05 * te + ph2),
+        4.8 * cos(0.36 * slot.x + 0.30 * slot.y + 0.90 * te + ph3));
+    float wf = 8.5 + 4.0 * p4h;
+    float fl = sin(wf * te + ph1);
+    F += vec3(0.5 * fl, 1.3 * fl, 0.4 * sin(wf * 0.87 * te + ph2));
+    F *= churn;
+
+    vec3 P = C + swarmO + streamed + F;
+
+    // Predator dodges: two sweeping exclusion cavities shape-shift the flock
+    if (elapsed > 2.6 && elapsed < 8.6) {
+        float wA = clamp((elapsed - 2.8) / 0.4, 0.0, 1.0);
+        wA *= 1.0 - clamp((elapsed - 5.0) / 0.4, 0.0, 1.0);
+        float wB = clamp((elapsed - 6.0) / 0.4, 0.0, 1.0);
+        wB *= 1.0 - clamp((elapsed - 8.2) / 0.4, 0.0, 1.0);
+        float wEnv = max(wA, wB);
+        if (wEnv > 0.001) {
+            // The predator rides the flock's own flight path with a lateral weave
+            float qt = min(8.9, elapsed * 0.92 + 1.1);
+            float qU = max(0.0, (qt - 2.0) / 7.0);
+            vec3 Q = vec3(
+                swX * sin(qU * fX + phX) + 5.0 * sin(1.7 * elapsed + 1.0),
+                swY * sin(qU * fY + phY) + 3.0 * sin(qU * 3.14159265) + 2.0 * sin(1.3 * elapsed),
+                swZ * sin(qU * fZ + phZ) + 4.0 * sin(1.6 * elapsed + 2.0));
+            // Part the flock around the predator: slide particles sideways
+            // relative to the flow direction instead of pushing them radially.
+            // A radial push compresses displaced particles into a visible rim
+            // ring; tangential parting preserves radial density and reads as
+            // the flock cleaving around a falcon. Magnitude fades to zero at
+            // the cavity rim and on the parting mid-plane, so nothing snaps.
+            vec3 dvv = P - Q;
+            float d = length(dvv);
+            float rad = 8.0;
+            if (d < rad) {
+                float x = d / rad;
+                float rise = min(1.0, x / 0.5); rise = rise * rise * (3.0 - 2.0 * rise);
+                float fall = clamp((x - 0.6) / 0.4, 0.0, 1.0); fall = fall * fall * (3.0 - 2.0 * fall);
+                // In-plane perpendicular to the flock's travel direction,
+                // smoothly attenuated so near-vertical turnarounds fade the
+                // parting out instead of switching it off abruptly.
+                vec2 pv = vec2(vDir.y, -vDir.x);
+                pv /= sqrt(dot(pv, pv) + 2.5e-3);
+                float sideDist = dot(dvv.xy, pv);
+                float part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * wEnv * (0.75 + 0.5 * p4h);
+                P += vec3(pv * part, 0.0);
+            }
+        }
+    }
+
+    // Landing blend to home, then take-off blend from home
+    P.y += hop;
+    if (elapsed >= T123) {
+        float tau4 = elapsed - T123;
+        float stg = p2h * 0.5;
+        float q = clamp((tau4 - stg) / (t4 - stg), 0.0, 1.0);
+        float e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
+        P = mix(P, home, e4);
+    }
+    if (lb < 1.0) P = mix(home, P, lb);
+    return P;
+}
+
 void main() {
     vec3 livePos = position;
     if (uGpuPhysics > 0.5) {
@@ -656,6 +991,12 @@ void main() {
                 livePos = evalBreezeGPU(aIndex, homePosition, aCustomDir, uExplosionElapsed, uBreezeBlowDir, uBreezeIntensity, uBreezeSwirl);
             } else if (uMotionStyle == 3) {
                 livePos = evalKineticGPU(homePosition, aCustomDir, uExplosionElapsed);
+            } else if (uMotionStyle == 4) {
+                livePos = evalTorusGPU(aIndex, homePosition, aCustomDir, uExplosionElapsed);
+            } else if (uMotionStyle == 5) {
+                livePos = evalMurmurationGPU(aIndex, homePosition, aCustomDir, uExplosionElapsed,
+                    uMSweepX, uMSweepY, uMSweepZ, uMFreqX, uMFreqY, uMFreqZ,
+                    uMPhX, uMPhY, uMPhZ, uMLaunchDir);
             } else {
                 livePos = evalExplosionGPU(homePosition, aRandomDir, aRandomSpeed, uMaxDist, uExpDuration, uDriftDuration, uContractionDuration, uExplosionElapsed);
             }
@@ -721,7 +1062,10 @@ void main() {
 
     // Size attenuation - corrected for device pixel ratio.
     float effectiveSampleSize = mix(sampleSize, 1.0, uEmojiMode);
-    gl_PointSize = uPointSize * uPixelRatio * uPointScale * depthCue * effectiveSampleSize;
+    // Style 4 (torus knot): enlarge points so overlapping splats saturate the
+    // strand interior — kills the twin-stripe limb artifact of additive blending.
+    float stylePointSize = (uMotionStyle == 4) ? 1.3 : 1.0;
+    gl_PointSize = uPointSize * uPixelRatio * uPointScale * depthCue * effectiveSampleSize * stylePointSize;
     gl_PointSize *= (1.0 + 0.5 * heat * uExplosionActive + 0.2 * uAudioHigh);
     gl_PointSize *= mix(1.0, 0.76 + 0.24 * funnelFade, uTornadoActive);
 }
@@ -763,9 +1107,9 @@ void main() {
 }
 `;
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // State grouped into named objects
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 
 // Global configuration state
 const state = {
@@ -849,6 +1193,14 @@ const state = {
         if (style === 3) {
             // Clean Continuous Surf Wave (7.5s)
             return 7.5;
+        }
+        if (style === 4) {
+            // 4-Phase Black Hole: Collapse (3.5s) + Accretion (4.5s) + Jets (4.0s) + Reformation (4.0s) = 16.0s
+            return 16.0;
+        }
+        if (style === 5) {
+            // 4-Phase Murmuration: Take-off (2.0s) + Flight (7.0s) + Settle (3.0s) + Landing (2.0s) = 14.0s
+            return 14.0;
         }
         const exp = this.activeExpansionDuration || this.expansionDuration;
         const con = this.activeContractionDuration || this.contractionDuration;
@@ -939,7 +1291,7 @@ const interaction = {
     toastTimer: null,
     flashTimer: null,
     drawerCloseTimer: null,
-    wordmarkTimer: null,   // auto-removes the title flourish after it completes
+    wordmarkTimer: null,      // schedules the next flourish inside the showcase loop
     menuRestoreDesktop: false, // dock body was expanded when the animation started
     menuRestoreMobile: false,  // drawer was open when the animation started
     isDragging: false,
@@ -1002,6 +1354,18 @@ const uniforms = {
     uBreezeBlowDir: { value: 1.0 },
     uBreezeIntensity: { value: 1.0 },
     uBreezeSwirl: { value: 0.0 },
+    // Murmuration randomized flight plan (defaults mirror the JS evaluator's)
+    uMSweepX: { value: 24.0 },
+    uMSweepY: { value: 4.0 },
+    uMSweepZ: { value: 12.0 },
+    uMFreqX: { value: 3.456 },
+    uMFreqY: { value: 5.341 },
+    uMFreqZ: { value: 2.827 },
+    uMPhX: { value: 0.4 },
+    uMPhY: { value: 0.0 },
+    uMPhZ: { value: 1.2 },
+    uMLaunchDir: { value: 1.0 },
+    uKnotScale: { value: 11.0 },
     uMouseWorld: { value: new Vector3(-1000, -1000, 0) },
     uMousePushDistance: { value: CONFIG.repulsionStrength },
     uMouseActive: { value: 0.0 }
@@ -1012,7 +1376,7 @@ let statusFpsEl = null;
 let fpsFrames = 0;
 let fpsLastUpdate = 0;
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
     if (!toast) return;
@@ -1026,9 +1390,9 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Screen Reader Accessibility Announcements
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 function announceToScreenReader(message) {
     const el = document.getElementById('sr-announce');
     if (el) {
@@ -1036,9 +1400,9 @@ function announceToScreenReader(message) {
     }
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Impact Flash (procedural, no assets)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 function flashImpact() {
     const el = document.getElementById('flash');
     if (!el) return;
@@ -1050,9 +1414,9 @@ function flashImpact() {
     interaction.flashTimer = setTimeout(() => el.classList.remove('active'), 120);
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Audio Synthesis (Web Audio API)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let audioCtx = null;
 let audioMaster = null;    // Shared output gain (all layers route through this)
 let audioAnalyser = null;  // Analyser for audio-reactive visuals
@@ -1144,9 +1508,9 @@ function scheduleContractionRumble(duration) {
 }
 const loadedFonts = new Set(['Outfit']);
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Font Loading Optimization
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 async function ensureFontLoaded(fontFamily) {
     if (!fontFamily) return;
     const fontSpec = `bold ${CONFIG.fontSize}px "${fontFamily}"`;
@@ -1157,9 +1521,9 @@ async function ensureFontLoaded(fontFamily) {
     }
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Text Rasterization (Reusing single offscreen canvas)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let offscreenCanvas = null;
 let offscreenCtx = null;
 
@@ -1224,9 +1588,9 @@ function sampleTextPoints(text) {
     return flat;
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Uploaded Image Rasterization
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let imageCanvas = null;
 let imageCtx = null;
 
@@ -1379,9 +1743,9 @@ function sampleImagePoints(image) {
     };
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Emoji Rasterization (high-detail two-pass sampling)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let emojiCanvas = null;
 let emojiCtx = null;
 
@@ -1522,9 +1886,9 @@ function sampleEmojiPoints(emoji) {
     };
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Particle Setup (Font Check + Capped Count + Worker Sync)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 let setupRequestId = 0;
 
 async function setupParticles(text, shouldScatter = false) {
@@ -1913,7 +2277,7 @@ funnelRadialZ: physics.funnelRadialZ.slice()
 function buildTrailsAndEmbers() {
     const n = physics.posLive.length;
 
-    // ── Trail streak layer ──────────────────────────────────────────────
+    // -- Trail streak layer ----------------------------------------------
     render.trailData = new Float32Array(n);
     render.trailLive = new Float32Array(n);
     render.trailData.set(physics.posLive);
@@ -1949,7 +2313,7 @@ function buildTrailsAndEmbers() {
     render.trailPosAttr = tPosAttr;
     render.trailLiveAttr = tLiveAttr;
 
-    // ── Ember spark layer (capped) ──────────────────────────────────────
+    // -- Ember spark layer (capped) --------------------------------------
     const EC = 300;
     render.emberData = new Float32Array(EC * 3);
     render.emberVel = new Float32Array(EC * 3);
@@ -2100,9 +2464,9 @@ function updateEmbers(dt) {
     }
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Mouse Utilities & Optimization
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 const _vec = new Vector3();
 
 function updateMouse(clientX, clientY) {
@@ -2119,9 +2483,9 @@ function updateMouse(clientX, clientY) {
     }
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Explosion Vector & Parameter Randomization
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 function randomizeExplosionVectors() {
     if (!physics.randomDir || !physics.randomSpeed) return;
     const count = physics.randomSpeed.length;
@@ -2378,6 +2742,25 @@ function triggerExplosion(force = false) {
     state.afterglowStartTime = null;
     fallbackMaxTravelSq = 0;
 
+    // Procedural randomized murmuration flight plan (style 5): every blast flies
+    // a different sweep. The fields ride state.pattern to the shader uniforms,
+    // to the worker via the 'randomize' message, and to the CPU fallback.
+    if (state.motionStyle === 5) {
+        state.pattern = {
+            ...state.pattern,
+            mSweepX: 16.0 + Math.random() * 14.0,
+            mSweepY: 3.5 + Math.random() * 4.0,
+            mSweepZ: 8.0 + Math.random() * 8.0,
+            mFreqX: 2.8 + Math.random() * 1.2,
+            mFreqY: 4.6 + Math.random() * 1.4,
+            mFreqZ: 2.2 + Math.random() * 1.2,
+            mPhX: Math.random() * 6.283,
+            mPhY: Math.random() * 6.283,
+            mPhZ: Math.random() * 6.283,
+            mLaunchDir: Math.random() < 0.5 ? 1.0 : -1.0
+        };
+    }
+
     // Randomize active timing and distance multipliers per blast
     state.activeMaxDist = state.explosionMaxDistMultiplier * (0.8 + Math.random() * 0.4);
     state.activeExpansionDuration = state.expansionDuration * (0.85 + Math.random() * 0.3);
@@ -2433,9 +2816,9 @@ function triggerExplosion(force = false) {
 }
 
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // URL Parameter Synchronisation (Undo/Redo Support)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 function updateURLParams(text, theme, font, shouldPush = true) {
     const url = new URL(window.location);
     url.searchParams.set('t', text);
@@ -2448,9 +2831,9 @@ function updateURLParams(text, theme, font, shouldPush = true) {
     }
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Custom UI Event Handlers
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Copy a preset's explosion physics/pattern/visual tuning into state and apply the
 // explosion-only visual uniforms. The user's theme/font always stay untouched.
 function applyPresetPhysics(preset) {
@@ -2611,9 +2994,9 @@ async function applyPresetExplosion(presetName, shouldScatter = false) {
     }
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Pointer & Gesture Handlers
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Any pointer/touch/double-click that starts on UI chrome must not drive the canvas.
 const UI_GUARD_SELECTOR = '#drawer, #menu-toggle-btn, #drawer-backdrop, #dock, #topbar, #input-bar, #hint, #toast';
 const isUIEvent = (e) => !!e.target.closest(UI_GUARD_SELECTOR);
@@ -2978,9 +3361,9 @@ function handleImageUpload(file) {
     img.src = url;
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Mobile Drawer Controls
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // The drawer auto-closes 1s after any selection is made inside it, unless another
 // selection arrives first (the timer resets each time).
 const DRAWER_AUTO_CLOSE_MS = 1000;
@@ -3085,9 +3468,9 @@ function restoreMenuAfterAnimation() {
     refitAfterDockTransition();
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // UI Setup
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Mirror the current message text into every input (desktop dock + mobile bar).
 function syncInputValues(value) {
     document.querySelectorAll('#text-input, #mobile-text-input').forEach(inp => {
@@ -3176,9 +3559,9 @@ function toggleAudio() {
         btn.title = state.audioEnabled ? 'Toggle Sound (Mute/Unmute)' : 'Sound: MUTED (Click to unmute)';
     });
     document.querySelectorAll('.audio-icon').forEach(icon => {
-        icon.textContent = state.audioEnabled ? '🔊' : '🔇';
+        icon.textContent = state.audioEnabled ? '??' : '??';
     });
-    showToast(state.audioEnabled ? '🔊 Sound effects enabled' : '🔇 Sound effects muted');
+    showToast(state.audioEnabled ? '?? Sound effects enabled' : '?? Sound effects muted');
 }
 
 // First-visit hint: dismiss once, remember the choice.
@@ -3198,22 +3581,50 @@ function setupUI() {
     const dockToggleBtn = document.getElementById('dock-toggle-btn');
     const hintDismissBtn = document.getElementById('hint-dismiss');
 
-    // Wordmark flourish: click/tap alternates between a dissolve-and-reform
-    // particle burst and a ripple-cascade wave through the letters.
+    // Wordmark flourish showcase: clicking starts an endless loop that plays
+    // the flourishes back to back — ripple-cascade wave, dissolve-and-reform
+    // particle burst, then staggered gravity-drop bounce, repeating — until
+    // the user clicks again to stop it.
     const wordmark = document.getElementById('wordmark');
     if (wordmark) {
-        let useRipple = false;
+        const FLOURISHES = [
+            { cls: 'is-rippling', ms: 1400 },
+            { cls: 'is-playing',  ms: 1800 },
+            { cls: 'is-dropping', ms: 1600 },
+        ];
+        const flourishGapMs = 700; // breathing room between flourishes
+        const flourishClasses = () => FLOURISHES.map(f => f.cls);
+        const setHint = stopped => {
+            wordmark.setAttribute('aria-label', stopped
+                ? 'KINETICS — click to play title animation'
+                : 'KINETICS — click to stop the title animation');
+            wordmark.title = stopped ? 'Click to play' : 'Click to stop';
+        };
+        let cycling = false;
+        let flourishIndex = 0;
+
+        const playNextFlourish = () => {
+            const flourish = FLOURISHES[flourishIndex];
+            flourishIndex = (flourishIndex + 1) % FLOURISHES.length;
+            wordmark.classList.remove(...flourishClasses());
+            void wordmark.offsetWidth; // restart the animation
+            wordmark.classList.add(flourish.cls);
+            interaction.wordmarkTimer =
+                setTimeout(playNextFlourish, flourish.ms + flourishGapMs);
+        };
+
         wordmark.addEventListener('click', () => {
             if (isMotionReduced) return;
-            useRipple = !useRipple;
-            const animClass = useRipple ? 'is-rippling' : 'is-playing';
-            wordmark.classList.remove('is-playing', 'is-rippling');
-            void wordmark.offsetWidth; // restart the animation
-            wordmark.classList.add(animClass);
+            cycling = !cycling;
             clearTimeout(interaction.wordmarkTimer);
-            interaction.wordmarkTimer = setTimeout(() => {
-                wordmark.classList.remove('is-playing', 'is-rippling');
-            }, useRipple ? 1400 : 1800);
+            if (cycling) {
+                flourishIndex = 0;
+                setHint(false);
+                playNextFlourish();
+            } else {
+                setHint(true);
+                wordmark.classList.remove(...flourishClasses());
+            }
         });
     }
 
@@ -3385,9 +3796,9 @@ function setupUI() {
     });
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Animation Loop
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Terminate a broken worker and switch to the CPU fallback without freezing the
 // simulation. Unsticks any in-flight double-buffer slots that will never return.
 function teardownWorker() {
@@ -3669,7 +4080,7 @@ function animate() {
         }
     }
 
-    // GPU-Native Kinematics vs CPU Fallback
+    // GPU-Native Kinematics vs CPU Fallback (styles 0-5 all run in the shader)
     if (state.gpuPhysics && isExploding) {
         if (render.trailPoints) render.trailPoints.visible = false;
         uniforms.uGpuPhysics.value = 1.0;
@@ -3690,6 +4101,27 @@ function animate() {
         uniforms.uBreezeBlowDir.value = (activeBreezeConfig && activeBreezeConfig.blowDir) || 1.0;
         uniforms.uBreezeIntensity.value = (activeBreezeConfig && activeBreezeConfig.intensity) || 1.0;
         uniforms.uBreezeSwirl.value = (activeBreezeConfig && activeBreezeConfig.swirl != null) ? activeBreezeConfig.swirl : 0.0;
+        // Murmuration randomized flight plan (defaults mirror the JS evaluator's)
+        uniforms.uMSweepX.value = (state.pattern && state.pattern.mSweepX != null) ? state.pattern.mSweepX : 24.0;
+        uniforms.uMSweepY.value = (state.pattern && state.pattern.mSweepY != null) ? state.pattern.mSweepY : 4.0;
+        uniforms.uMSweepZ.value = (state.pattern && state.pattern.mSweepZ != null) ? state.pattern.mSweepZ : 12.0;
+        uniforms.uMFreqX.value = (state.pattern && state.pattern.mFreqX != null) ? state.pattern.mFreqX : 3.456;
+        uniforms.uMFreqY.value = (state.pattern && state.pattern.mFreqY != null) ? state.pattern.mFreqY : 5.341;
+        uniforms.uMFreqZ.value = (state.pattern && state.pattern.mFreqZ != null) ? state.pattern.mFreqZ : 2.827;
+        uniforms.uMPhX.value = (state.pattern && state.pattern.mPhX != null) ? state.pattern.mPhX : 0.4;
+        uniforms.uMPhY.value = (state.pattern && state.pattern.mPhY != null) ? state.pattern.mPhY : 0.0;
+        uniforms.uMPhZ.value = (state.pattern && state.pattern.mPhZ != null) ? state.pattern.mPhZ : 1.2;
+        uniforms.uMLaunchDir.value = (state.pattern && state.pattern.mLaunchDir != null) ? state.pattern.mLaunchDir : 1.0;
+        // Torus knot auto-calibration: scale the trefoil from the live
+        // camera frustum so it stays centered and covers over half the stage.
+        {
+            const cam = render.camera;
+            const viewH = cam.top - cam.bottom;
+            const viewW = cam.right - cam.left;
+            const knotScale = Math.max(1.0, Math.min(viewW, viewH)) * 0.205;
+            uniforms.uKnotScale.value = knotScale;
+            state.pattern.knotScale = knotScale;   // CPU fallback / snapshot parity
+        }
         uniforms.uMouseWorld.value.set(-1000, -1000, 0);
         uniforms.uMousePushDistance.value = 0.0;
         uniforms.uMouseInfluence.value = 0.0;
@@ -3778,6 +4210,20 @@ function animate() {
                             elapsed, pat, _fallbackRes
                         );
                         bx = _fallbackRes.x; by = _fallbackRes.y; bz = _fallbackRes.z;
+                    } else if (activeStyle === 4) {
+                        evaluateTorusParticle(
+                            i, posHome[ix], posHome[iy], posHome[iz],
+                            (randomSpeed ? randomSpeed[i] : 1.0) * 0.35 + 0.85,
+                            elapsed, pat, _fallbackRes
+                        );
+                        bx = _fallbackRes.x; by = _fallbackRes.y; bz = _fallbackRes.z;
+                    } else if (activeStyle === 5) {
+                        evaluateMurmurationParticle(
+                            i, posHome[ix], posHome[iy], posHome[iz],
+                            (randomSpeed ? randomSpeed[i] : 1.0) * 0.35 + 0.85,
+                            elapsed, pat, _fallbackRes
+                        );
+                        bx = _fallbackRes.x; by = _fallbackRes.y; bz = _fallbackRes.z;
                     } else {
                         const maxDist = randomSpeed[i] * activeMaxDistMult;
                         evaluateExplosionParticle(
@@ -3846,9 +4292,9 @@ function animate() {
     updateAdaptiveQuality(performance.now() - frameStart);
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Initialisation
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 async function init() {
     render.scene  = new Scene();
     render.camera = new OrthographicCamera(-1, 1, 1, -1, -600, 600);
@@ -4126,9 +4572,9 @@ async function init() {
     animate();
 }
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Test/Debug hook (used by the Playwright browser suite; harmless in production)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 window.__artzDebug = {
     _render: () => render,
     triggerExplosion,
@@ -4166,6 +4612,10 @@ window.__artzDebug = {
                     evaluateBreezeParticle(i, home[ix], home[iy], home[iz], (physics.randomSpeed ? physics.randomSpeed[i] : 1.0) * 0.35 + 0.85, elapsed, activeBreezeConfig, _res);
                 } else if (activeStyle === 3) {
                     evaluateKineticParticle(i, home[ix], home[iy], home[iz], (physics.randomSpeed ? physics.randomSpeed[i] : 1.0) * 0.35 + 0.85, elapsed, state.pattern, _res);
+                } else if (activeStyle === 4) {
+                    evaluateTorusParticle(i, home[ix], home[iy], home[iz], (physics.randomSpeed ? physics.randomSpeed[i] : 1.0) * 0.35 + 0.85, elapsed, state.pattern, _res);
+                } else if (activeStyle === 5) {
+                    evaluateMurmurationParticle(i, home[ix], home[iy], home[iz], (physics.randomSpeed ? physics.randomSpeed[i] : 1.0) * 0.35 + 0.85, elapsed, state.pattern, _res);
                 } else {
                     const maxDist = (physics.randomSpeed ? physics.randomSpeed[i] : 1.0) * activeMaxDistMult;
                     const orig = origin || home;

@@ -229,6 +229,15 @@ body {
   opacity: 0.85;
 }
 
+/* Emoji glyphs in preset labels: stable metrics across platforms/fonts. */
+.preset-chip .chip-emoji {
+  font-size: 15px;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-1px);
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+}
+
 /* ── Dock sections (Object / Animations / Sharing) ── */
 .dock-section {
   display: flex;
@@ -291,7 +300,7 @@ body {
   min-width: 0;
 }
 
-/* Animations column: the 4 presets pack into a 2x2 grid to fit the 40% width. */
+/* Animations column: the 6 presets pack into a 2x3 grid to fit the 40% width. */
 .dock-animations .presets-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -479,9 +488,69 @@ body {
   }
 }
 
+/* ── Wordmark gravity drop ── */
+#wordmark.is-dropping {
+  color: #fff;
+  text-shadow: 0 0 18px var(--color-accent-glow), 0 0 32px rgba(99, 102, 241, 0.35);
+}
+
+/* Letters plummet from above (left-to-right via the --i stagger), land with a
+   squash-and-stretch bounce, and flash an impact glow. The origin sits low so
+   the squash reads as ground impact. */
+#wordmark.is-dropping .title-letter {
+  transform-origin: 50% 78%;
+  animation:
+    title-drop-fall   0.38s cubic-bezier(0.55, 0, 1, 0.45) calc(var(--i) * 70ms) both,
+    title-drop-bounce 0.60s cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--i) * 70ms + 0.38s) both;
+}
+
+@keyframes title-drop-fall {
+  0% {
+    transform: translateY(-1.5em) scale(0.92, 1.16);
+    opacity: 0;
+    filter: blur(2px);
+  }
+
+  70% {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  100% {
+    transform: translateY(0) scale(1, 1);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes title-drop-bounce {
+  0% {
+    transform: translateY(0) scale(1, 1);
+    text-shadow: 0 0 22px var(--color-accent-glow);
+  }
+
+  30% {
+    transform: translateY(0.10em) scale(1.26, 0.66);
+  }
+
+  55% {
+    transform: translateY(-0.16em) scale(0.94, 1.14);
+  }
+
+  75% {
+    transform: translateY(0.04em) scale(1.08, 0.93);
+  }
+
+  100% {
+    transform: translateY(0) scale(1, 1);
+    text-shadow: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #wordmark.is-playing .title-letter,
-  #wordmark.is-rippling .title-letter {
+  #wordmark.is-rippling .title-letter,
+  #wordmark.is-dropping .title-letter {
     animation: none;
   }
 }

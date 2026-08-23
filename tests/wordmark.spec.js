@@ -7,7 +7,7 @@ async function openPage(page, query = '/') {
     await waitForRender(page);
 }
 
-test('clicking the wordmark plays the dissolve/reform animation and settles', async ({ page }) => {
+test('clicking the wordmark plays the flourishes back to back in a loop', async ({ page }) => {
     await openPage(page);
 
     const wordmark = page.locator('#wordmark');
@@ -17,28 +17,44 @@ test('clicking the wordmark plays the dissolve/reform animation and settles', as
     expect(await wordmark.locator('.title-letter').count()).toBe(8);
     expect((await wordmark.locator('.title-letter').allTextContents()).join('')).toBe('KINETICS');
 
+    // First click starts the showcase with the ripple-cascade wave...
     await wordmark.click();
-    await expect(wordmark).toHaveClass(/is-playing/);
+    await expect(wordmark).toHaveClass(/is-rippling/);
 
-    // The animation finishes and the class is removed; letters stay intact.
-    await expect(wordmark).not.toHaveClass(/is-playing/, { timeout: 3000 });
-    expect((await wordmark.locator('.title-letter').allTextContents()).join('')).toBe('KINETICS');
+    // ...then it advances to the dissolve-and-reform burst, then the gravity
+    // drop, then wraps back around to the ripple. Each flourish plays once.
+    await expect(wordmark).toHaveClass(/is-playing/, { timeout: 6000 });
+    await expect(wordmark).toHaveClass(/is-dropping/, { timeout: 6000 });
+    await expect(wordmark).toHaveClass(/is-rippling/, { timeout: 6000 });
 });
 
-test('re-clicking the wordmark restarts the animation cleanly', async ({ page }) => {
+test('clicking the wordmark again stops the showcase until re-clicked', async ({ page }) => {
     await openPage(page);
 
     const wordmark = page.locator('#wordmark');
     await wordmark.click();
-    await expect(wordmark).toHaveClass(/is-playing/);
+    await expect(wordmark).toHaveClass(/is-rippling/);
 
-    // A second click mid-animation restarts rather than double-scheduling.
+    // Confirm it advances to the next flourish on its own before stopping.
+    await expect(wordmark).toHaveClass(/is-playing/, { timeout: 6000 });
+
+    // Stopping removes the running flourish immediately...
     await wordmark.click();
-    await expect(wordmark).toHaveClass(/is-playing/);
-    await expect(wordmark).not.toHaveClass(/is-playing/, { timeout: 3000 });
+    await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping)/);
+
+    // ...and no further flourishes are scheduled.
+    await page.waitForTimeout(3500);
+    await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping)/);
+
+    // Clicking once more restarts the showcase from the first variant...
+    await wordmark.click();
+    await expect(wordmark).toHaveClass(/is-rippling/);
+
+    // ...and it keeps cycling from there.
+    await expect(wordmark).toHaveClass(/is-playing/, { timeout: 6000 });
 });
 
-test('wordmark animation is skipped under prefers-reduced-motion', async ({ page }) => {
+test('wordmark showcase is skipped under prefers-reduced-motion', async ({ page }) => {
     // Emulate reduced motion so the app's matchMedia change listener fires.
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
@@ -46,7 +62,9 @@ test('wordmark animation is skipped under prefers-reduced-motion', async ({ page
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     const wordmark = page.locator('#wordmark');
-    await wordmark.click();
-    await page.waitForTimeout(300);
-    await expect(wordmark).not.toHaveClass(/is-playing/);
+    for (let i = 0; i < 3; i++) {
+        await wordmark.click();
+        await page.waitForTimeout(300);
+        await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping)/);
+    }
 });
