@@ -11,6 +11,7 @@
 - After any kernel edit: `node --check` both files, `npm run build`, then verify visually via a Playwright probe against `http://localhost:5173/ParticlesSimulations/` (dev server binds IPv6 — use `localhost`, never `127.0.0.1`).
 - Numeric continuity check convention: max frame-to-frame jump = 2.5u at cd=1.0 and cd=1.27, home-return error = 1e-10 at t=total+0.5s.
 - Full test battery (`npm test`) is deferred until the user asks for commit; quick gate is `npx playwright test tests/patterns.spec.js`.
+- When the user asks to "commit", this always means the full workflow: run `npm test`, commit changes, push to remote (`git push origin main`), and deploy to live (`npm run deploy`).
 - Scratch/debug scripts go in the repo root as `.tmp.mjs` (node resolves @playwright/test from project node_modules) and must be deleted after use. Screenshots go to `C:\Users\rodri\AppData\Local\Temp\opencode\shots\`.
 
 ## Encoding safety (mandatory)
