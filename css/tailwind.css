@@ -547,10 +547,92 @@ body {
   }
 }
 
+/* ── Wordmark black hole singularity & quantum burst ── */
+#wordmark.is-imploding {
+  color: #fff;
+  text-shadow: 0 0 22px #c084fc, 0 0 38px rgba(168, 85, 247, 0.5);
+}
+
+/* Single unified timeline with black-hole spaghettification:
+   1. Gravitational pull & vertical tidal stretch (0% → 18%)
+   2. Spiral vortex collapse into singularity point (18% → 42%)
+   3. Event horizon stasis / complete disappearance (42% → 52%)
+   4. Explosive quantum detonation outward past baseline (52% → 70%)
+   5. Elastic underdamped bounce & settle (70% → 100%) */
+#wordmark.is-imploding .title-letter {
+  transform-origin: 50% 50%;
+  animation: title-singularity-burst 1.7s cubic-bezier(0.2, 0.8, 0.3, 1) calc(110ms - (3.5 - var(--i)) * (3.5 - var(--i)) * 8ms) both;
+}
+
+@keyframes title-singularity-burst {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1, 1);
+    opacity: 1;
+    filter: blur(0);
+    text-shadow: none;
+  }
+
+  18% {
+    transform: translate(calc((3.5 - var(--i)) * 0.38em), 2px) rotate(calc((3.5 - var(--i)) * 14deg)) scale(0.82, 1.28);
+    opacity: 1;
+    filter: blur(0);
+    text-shadow: 0 0 16px rgba(168, 85, 247, 0.7);
+  }
+
+  38% {
+    transform: translate(calc((3.5 - var(--i)) * 0.90em), 1px) rotate(calc((3.5 - var(--i)) * 60deg)) scale(0.18, 0.45);
+    opacity: 0.8;
+    filter: blur(2px);
+    text-shadow: 0 0 24px #a855f7;
+  }
+
+  44% {
+    transform: translate(calc((3.5 - var(--i)) * 0.98em), 0) rotate(calc((3.5 - var(--i)) * 90deg)) scale(0);
+    opacity: 0;
+    filter: blur(4px);
+    text-shadow: 0 0 28px #c084fc;
+  }
+
+  52% {
+    transform: translate(calc((3.5 - var(--i)) * 0.98em), 0) rotate(calc((3.5 - var(--i)) * 90deg)) scale(0);
+    opacity: 0;
+    filter: blur(4px);
+    text-shadow: 0 0 28px #c084fc;
+  }
+
+  68% {
+    transform: translate(calc((3.5 - var(--i)) * 0.10em), -6px) rotate(calc((3.5 - var(--i)) * -10deg)) scale(1.45);
+    opacity: 1;
+    filter: blur(0);
+    text-shadow: 0 0 26px #a855f7, 0 0 45px #6366f1;
+  }
+
+  82% {
+    transform: translate(0, 2px) rotate(0deg) scale(0.93);
+    opacity: 1;
+    filter: blur(0);
+    text-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+  }
+
+  92% {
+    transform: translate(0, -1px) rotate(0deg) scale(1.02);
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  100% {
+    transform: translate(0, 0) rotate(0deg) scale(1, 1);
+    opacity: 1;
+    filter: blur(0);
+    text-shadow: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #wordmark.is-playing .title-letter,
   #wordmark.is-rippling .title-letter,
-  #wordmark.is-dropping .title-letter {
+  #wordmark.is-dropping .title-letter,
+  #wordmark.is-imploding .title-letter {
     animation: none;
   }
 }

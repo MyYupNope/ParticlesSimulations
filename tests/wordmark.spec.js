@@ -22,9 +22,11 @@ test('clicking the wordmark plays the flourishes back to back in a loop', async 
     await expect(wordmark).toHaveClass(/is-rippling/);
 
     // ...then it advances to the dissolve-and-reform burst, then the gravity
-    // drop, then wraps back around to the ripple. Each flourish plays once.
+    // drop, then the black hole singularity implosion, then wraps back around to
+    // the ripple. Each flourish plays once.
     await expect(wordmark).toHaveClass(/is-playing/, { timeout: 6000 });
     await expect(wordmark).toHaveClass(/is-dropping/, { timeout: 6000 });
+    await expect(wordmark).toHaveClass(/is-imploding/, { timeout: 6000 });
     await expect(wordmark).toHaveClass(/is-rippling/, { timeout: 6000 });
 });
 
@@ -40,11 +42,11 @@ test('clicking the wordmark again stops the showcase until re-clicked', async ({
 
     // Stopping removes the running flourish immediately...
     await wordmark.click();
-    await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping)/);
+    await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping|imploding)/);
 
     // ...and no further flourishes are scheduled.
     await page.waitForTimeout(3500);
-    await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping)/);
+    await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping|imploding)/);
 
     // Clicking once more restarts the showcase from the first variant...
     await wordmark.click();
@@ -65,6 +67,6 @@ test('wordmark showcase is skipped under prefers-reduced-motion', async ({ page 
     for (let i = 0; i < 3; i++) {
         await wordmark.click();
         await page.waitForTimeout(300);
-        await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping)/);
+        await expect(wordmark).not.toHaveClass(/is-(playing|rippling|dropping|imploding)/);
     }
 });

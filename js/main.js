@@ -3531,14 +3531,15 @@ function setupUI() {
 
     // Wordmark flourish showcase: clicking starts an endless loop that plays
     // the flourishes back to back — ripple-cascade wave, dissolve-and-reform
-    // particle burst, then staggered gravity-drop bounce, repeating — until
-    // the user clicks again to stop it.
+    // particle burst, staggered gravity-drop bounce, then black hole singularity
+    // implosion & quantum burst, repeating — until the user clicks again to stop it.
     const wordmark = document.getElementById('wordmark');
     if (wordmark) {
         const FLOURISHES = [
-            { cls: 'is-rippling', ms: 1400 },
-            { cls: 'is-playing',  ms: 1800 },
-            { cls: 'is-dropping', ms: 1600 },
+            { cls: 'is-rippling',  ms: 1400 },
+            { cls: 'is-playing',   ms: 1800 },
+            { cls: 'is-dropping',  ms: 1600 },
+            { cls: 'is-imploding', ms: 1700 },
         ];
         const flourishGapMs = 700; // breathing room between flourishes
         const flourishClasses = () => FLOURISHES.map(f => f.cls);
