@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/png" href="/ParticlesSimulations/favicon.png">
+    <link rel="apple-touch-icon" href="/ParticlesSimulations/favicon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Kinetic particle sculpture — type your message and watch it come alive as an interactive 3D particle display. Hover to disturb, double-click or press Space to explode.">
+    <title>Kinetic Particle Sculpture</title>
+
+    <!-- [5.1] Canonical Link -->
+    <link rel="canonical" href="https://myyupnope.github.io/ParticlesSimulations">
+
+    <!-- [5.2] Social Preview Meta Tags -->
+    <meta property="og:title" content="Kinetic Particle Sculpture">
+    <meta property="og:description"
+        content="Type your message and watch it come alive as an interactive 3D particle display. Hover to disturb, double-click or press Space to explode.">
+    <meta property="og:image" content="https://myyupnope.github.io/ParticlesSimulations/preview.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://myyupnope.github.io/ParticlesSimulations/preview.png">
+
+    <!-- Google Fonts Preconnect and Primary UI Font Loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Outfit:wght@300;400;600;700&family=Pacifico&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+  <script type="module" crossorigin src="/ParticlesSimulations/assets/index-BtaQTXJH.js"></script>
+  <link rel="modulepreload" crossorigin href="/ParticlesSimulations/assets/three-DqLVpfpE.js">
+  <link rel="stylesheet" crossorigin href="/ParticlesSimulations/assets/index-C4Cu1Q0L.css">
+</head>
+
+<body class="bg-bg text-text-primary font-sans">
+    <!-- Top bar: wordmark + status pill. Interactive children opt back into pointer events. -->
+    <header id="topbar" class="fixed top-0 inset-x-0 z-40 flex items-center justify-between h-14 px-3 md:px-5 pointer-events-none">
+        <div class="flex items-center gap-2.5">
+            <button id="menu-toggle-btn" class="md:hidden pointer-events-auto glass-chip w-10 h-10 rounded-full flex items-center justify-center border-0 cursor-pointer text-text-primary transition-all duration-300 hover:bg-white/10 hover:shadow-[0_0_16px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" aria-label="Toggle simulation options" aria-expanded="false" aria-controls="drawer">
+                <span class="flex flex-col justify-center items-center gap-[5px] w-5 h-5" aria-hidden="true">
+                    <span class="block w-[18px] h-0.5 bg-text-primary rounded-sm transition-all duration-300"></span>
+                    <span class="block w-[18px] h-0.5 bg-text-primary rounded-sm transition-all duration-300"></span>
+                    <span class="block w-[18px] h-0.5 bg-text-primary rounded-sm transition-all duration-300"></span>
+                </span>
+            </button>
+            <button type="button" id="wordmark" aria-label="KINETICS — click to play title animation" title="Click to play" class="pointer-events-auto inline-flex items-baseline gap-0 border-0 bg-transparent p-0 font-bold tracking-[4px] uppercase text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] cursor-pointer text-[12px] md:text-[13px] transition-[filter,text-shadow] duration-300 hover:text-white">
+                <span aria-hidden="true" class="title-letter" style="--i:0; --dx:0.34em; --dy:-0.85em; --rot:-130deg;">K</span><span aria-hidden="true" class="title-letter" style="--i:1; --dx:-0.22em; --dy:0.9em; --rot:150deg;">I</span><span aria-hidden="true" class="title-letter" style="--i:2; --dx:0.3em; --dy:0.6em; --rot:120deg;">N</span><span aria-hidden="true" class="title-letter" style="--i:3; --dx:-0.34em; --dy:-0.5em; --rot:-80deg;">E</span><span aria-hidden="true" class="title-letter" style="--i:4; --dx:0.24em; --dy:-0.7em; --rot:90deg;">T</span><span aria-hidden="true" class="title-letter" style="--i:5; --dx:-0.28em; --dy:0.8em; --rot:-150deg;">I</span><span aria-hidden="true" class="title-letter" style="--i:6; --dx:0.36em; --dy:0.45em; --rot:110deg;">C</span><span aria-hidden="true" class="title-letter" style="--i:7; --dx:-0.3em; --dy:-0.6em; --rot:-100deg;">S</span>
+                <span class="sr-only">KINETICS</span>
+            </button>
+        </div>
+        <div id="status-pill" class="hidden md:flex pointer-events-auto glass-chip items-center gap-2 rounded-full px-3.5 py-1.5 font-mono text-[11px] tracking-[1px] text-text-secondary">
+            <span id="status-gpu">GPU</span>
+            <span class="text-white/20" aria-hidden="true">·</span>
+            <span id="status-fps">60 FPS</span>
+        </div>
+    </header>
+
+    <!-- First-visit interaction hint (dismisses on first interaction or ✕) -->
+    <div id="hint" class="fixed z-30 left-1/2 -translate-x-1/2 bottom-[104px] md:bottom-[360px] glass-dock rounded-2xl pl-5 pr-3.5 py-3 flex items-center gap-3 shadow-[0_16px_50px_rgba(0,0,0,0.55)] transition-all duration-500 is-dismissed:opacity-0 is-dismissed:translate-y-2 is-dismissed:pointer-events-none">
+        <p class="m-0 text-[12.5px] text-text-primary/90 leading-relaxed">Drag to rotate &middot; Dbl-tap to explode &middot; Space to blast</p>
+        <button id="hint-dismiss" class="glass-chip w-7 h-7 rounded-full flex items-center justify-center border-0 cursor-pointer text-text-secondary text-[13px] transition-all duration-200 hover:text-text-primary hover:bg-white/10" aria-label="Dismiss hint">✕</button>
+    </div>
+
+    <!-- Desktop control dock: floating frosted glass instrument at the bottom -->
+    <div id="dock" class="hidden md:flex fixed z-40 bottom-5 left-1/2 -translate-x-1/2 w-[min(94vw,900px)] flex-col rounded-3xl glass-dock px-5 py-3">
+        <div class="flex items-center justify-between gap-3">
+            <p id="context-line" class="m-0 flex-1 min-w-0 truncate text-[12.5px] leading-relaxed text-text-secondary transition-opacity duration-300"></p>
+            <button id="dock-toggle-btn" class="glass-chip w-8 h-8 rounded-full flex items-center justify-center border-0 cursor-pointer text-text-secondary transition-all duration-300 hover:text-text-primary hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" aria-expanded="true" aria-controls="dock-body" title="Collapse controls">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="dock-chevron transition-transform duration-300"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+        </div>
+
+        <div id="dock-body" class="dock-body flex flex-col gap-2 overflow-hidden transition-all duration-400">
+            <!-- OBJECT (left) + ANIMATIONS (right) side by side; SHARING spans below -->
+            <div class="dock-sections-row">
+                <!-- OBJECT: Content · Theme · Font -->
+                <section class="dock-section" aria-labelledby="dock-object-heading">
+                    <h2 id="dock-object-heading" class="dock-section-heading">Object</h2>
+                    <!-- Content: message type selector + contextual follow-up panels -->
+                    <div class="flex flex-col gap-2">
+                        <div class="flex gap-1" role="tablist" aria-label="Message type">
+                            <button type="button" class="message-option chip-btn px-3 py-2 active" data-message-mode="text" role="tab" aria-selected="true" aria-controls="text-message-mode">Text</button>
+                            <button type="button" class="message-option chip-btn px-3 py-2" data-message-mode="emoji" role="tab" aria-selected="false" aria-controls="emoji-message-mode">Emoji</button>
+                            <button type="button" class="message-option chip-btn px-3 py-2" data-message-mode="image" role="tab" aria-selected="false" aria-controls="image-message-mode">Image</button>
+                        </div>
+                        <!-- Text follow-up: message text area -->
+                        <div class="text-message-mode message-mode-panel">
+                            <div class="relative flex items-center">
+                                <input type="text" id="text-input" value="Bring your message!" maxlength="25" autocomplete="off" class="w-full glass-input rounded-full pl-4 pr-14 py-2.5 text-sm outline-none transition-all duration-300 focus:shadow-[0_0_16px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
+                                <span class="char-counter absolute right-4 text-[11px] text-text-secondary font-mono pointer-events-none transition-colors duration-300 is-warning:text-amber-500 is-danger:text-danger is-danger:font-semibold">0/25</span>
+                            </div>
+                        </div>
+                        <!-- Emoji follow-up: roster of pre-selected emojis -->
+                        <div class="emoji-message-mode message-mode-panel" hidden>
+                            <div class="emoji-row" aria-label="Emoji message options">
+                                <span class="text-[10px] font-semibold text-text-secondary uppercase tracking-[1px] shrink-0 mr-0.5">Emojis</span>
+                                <button class="emoji-chip" data-emoji="😀" title="😀 Grinning Face">😀</button>
+                                <button class="emoji-chip" data-emoji="😂" title="😂 Tears of Joy">😂</button>
+                                <button class="emoji-chip" data-emoji="😍" title="😍 Heart Eyes">😍</button>
+                                <button class="emoji-chip" data-emoji="🥰" title="🥰 Smiling with Hearts">🥰</button>
+                                <button class="emoji-chip" data-emoji="😎" title="😎 Cool Shades">😎</button>
+                                <button class="emoji-chip" data-emoji="🤔" title="🤔 Thinking Face">🤔</button>
+                                <button class="emoji-chip" data-emoji="😭" title="😭 Loudly Crying">😭</button>
+                                <button class="emoji-chip" data-emoji="😡" title="😡 Angry Face">😡</button>
+                                <button class="emoji-chip" data-emoji="😱" title="😱 Screaming">😱</button>
+                                <button class="emoji-chip" data-emoji="🥳" title="🥳 Partying">🥳</button>
+                                <button class="emoji-chip" data-emoji="👍" title="👍 Thumbs Up">👍</button>
+                                <button class="emoji-chip" data-emoji="👎" title="👎 Thumbs Down">👎</button>
+                                <button class="emoji-chip" data-emoji="👏" title="👏 Clapping">👏</button>
+                                <button class="emoji-chip" data-emoji="🙏" title="🙏 Folded Hands">🙏</button>
+                                <button class="emoji-chip" data-emoji="👌" title="👌 OK Hand">👌</button>
+                                <button class="emoji-chip" data-emoji="💪" title="💪 Flexed Biceps">💪</button>
+                                <button class="emoji-chip" data-emoji="❤️" title="❤️ Red Heart">❤️</button>
+                                <button class="emoji-chip" data-emoji="🔥" title="🔥 Fire">🔥</button>
+                                <button class="emoji-chip" data-emoji="✨" title="✨ Sparkles">✨</button>
+                                <button class="emoji-chip" data-emoji="🎉" title="🎉 Party Popper">🎉</button>
+                            </div>
+                        </div>
+                        <!-- Image follow-up: load an image from the system -->
+                        <div class="image-message-mode message-mode-panel flex items-center gap-2 min-w-0" hidden>
+                            <label class="image-upload-button chip-btn shrink-0 cursor-pointer px-3 py-2" for="image-input">Choose File</label>
+                            <input type="file" class="image-input sr-only" id="image-input" accept="image/*">
+                            <span class="image-name flex-1 min-w-0 overflow-hidden text-text-secondary text-[11px] truncate">No file chosen</span>
+                        </div>
+                    </div>
+                    <!-- Theme · Font -->
+                    <div class="dock-appearance">
+                        <div class="flex items-center gap-1.5" role="group" aria-label="Theme">
+                            <button class="theme-swatch active" data-theme="ember" aria-label="Ember theme" aria-pressed="true"></button>
+                            <button class="theme-swatch" data-theme="arctic" aria-label="Arctic theme" aria-pressed="false"></button>
+                            <button class="theme-swatch" data-theme="toxic" aria-label="Toxic theme" aria-pressed="false"></button>
+                            <button class="theme-swatch" data-theme="neon" aria-label="Neon theme" aria-pressed="false"></button>
+                            <button class="theme-swatch" data-theme="sakura" aria-label="Sakura theme" aria-pressed="false"></button>
+                        </div>
+                        <select id="font-select" aria-label="Font" class="glass-input rounded-full pl-3.5 pr-9 py-2 text-[12.5px] outline-none cursor-pointer transition-all duration-300 focus:shadow-[0_0_16px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
+                            <option value="Outfit">Outfit</option>
+                            <option value="Fira Code">Fira Code</option>
+                            <option value="Pacifico">Pacifico</option>
+                            <option value="Playfair Display">Playfair Display</option>
+                        </select>
+                    </div>
+                </section>
+
+                <!-- ANIMATIONS: Simulations · Sound -->
+                <section class="dock-section dock-animations" aria-labelledby="dock-animations-heading">
+                    <h2 id="dock-animations-heading" class="dock-section-heading">Animations</h2>
+                    <div class="flex flex-col gap-2.5">
+                        <div class="presets-row">
+                            <button class="preset-chip" data-text="KINETIC"><span class="chip-emoji" aria-hidden="true">⚡</span> Kinetic</button>
+                            <button class="preset-chip" data-text="TORNADO"><span class="chip-emoji" aria-hidden="true">🌪️</span> Tornado</button>
+                            <button class="preset-chip" data-text="BREEZE"><span class="chip-emoji" aria-hidden="true">💨</span> Breeze</button>
+                            <button class="preset-chip" data-text="EXPLODE"><span class="chip-emoji" aria-hidden="true">💥</span> Explode</button>
+                            <button class="preset-chip" data-text="TORUS"><span class="chip-emoji" aria-hidden="true">⭕</span> Torus</button>
+                            <button class="preset-chip" data-text="MURMURATION"><span class="chip-emoji" aria-hidden="true">🐦</span> Murmuration</button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] text-text-secondary">Sound</span>
+                            <button class="audio-btn glass-chip w-9 h-9 rounded-full flex items-center justify-center border-0 cursor-pointer text-[15px] transition-all duration-200 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" title="Toggle Sound (Mute/Unmute)" aria-pressed="true">
+                                <span class="audio-icon">🔊</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- INSTRUCTIONS | SHARING: side by side -->
+            <div class="dock-sections-row dock-sections-row--halves">
+                <!-- INSTRUCTIONS: Rotate · Zoom · Explode (compact for the dock row) -->
+                <section class="dock-section dock-instructions" aria-labelledby="dock-instructions-heading">
+                    <h2 id="dock-instructions-heading" class="dock-section-heading">Instructions</h2>
+                    <dl class="m-0 grid grid-cols-3 gap-x-2 gap-y-1 text-[10.5px] leading-snug text-text-secondary">
+                        <div class="flex flex-col gap-0.5 min-w-0">
+                            <dt class="font-semibold text-text-primary">Rotate</dt>
+                            <dd class="m-0">Drag · Arrows</dd>
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-0">
+                            <dt class="font-semibold text-text-primary">Zoom</dt>
+                            <dd class="m-0">+/- · Pinch</dd>
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-0">
+                            <dt class="font-semibold text-text-primary">Explode</dt>
+                            <dd class="m-0">Dbl-tap · Space</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <!-- SHARING: Capture · Share -->
+                <section class="dock-section" aria-labelledby="dock-sharing-heading">
+                    <h2 id="dock-sharing-heading" class="dock-section-heading">Sharing</h2>
+                    <div class="dock-actions">
+                        <button class="capture-btn chip-btn px-3 py-2" title="Capture Screenshot">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            Capture
+                        </button>
+                        <button class="share-btn chip-btn px-3 py-2" title="Share Sculpture Link">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                                <circle cx="18" cy="5" r="3"></circle>
+                                <circle cx="6" cy="12" r="3"></circle>
+                                <circle cx="18" cy="19" r="3"></circle>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                            </svg>
+                            Share
+                        </button>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile drawer: slide-in options panel that auto-closes after a selection -->
+    <div id="drawer-backdrop" class="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"></div>
+    <aside id="drawer" class="md:hidden fixed inset-y-0 left-0 z-50 w-[320px] max-w-[86vw] glass-drawer rounded-r-3xl flex flex-col gap-4 p-4 overflow-y-auto" aria-label="Simulation options">
+        <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold tracking-[2px] uppercase text-text-secondary">Simulation Controls</span>
+            <button id="menu-close-btn" class="glass-chip w-[30px] h-[30px] rounded-full flex items-center justify-center border-0 cursor-pointer text-text-secondary text-sm transition-all duration-200 hover:bg-white/15 hover:text-text-primary" aria-label="Close menu">✕</button>
+        </div>
+        <p id="mobile-context-line" class="m-0 -mt-1 text-[12.5px] leading-relaxed text-text-secondary truncate"></p>
+
+        <section class="flex flex-col gap-2.5" aria-labelledby="drawer-object-heading">
+            <h2 id="drawer-object-heading" class="m-0 text-text-primary text-[11px] font-semibold tracking-[1.8px]">OBJECT</h2>
+            <!-- Content: message type selector + contextual follow-up panels -->
+            <div class="flex gap-1.5" role="tablist" aria-label="Message type">
+                <button type="button" class="message-option chip-btn active flex-1 px-3 py-2" data-message-mode="text" role="tab" aria-selected="true" aria-controls="text-message-mode">Text</button>
+                <button type="button" class="message-option chip-btn flex-1 px-3 py-2" data-message-mode="emoji" role="tab" aria-selected="false" aria-controls="emoji-message-mode">Emoji</button>
+                <button type="button" class="message-option chip-btn flex-1 px-3 py-2" data-message-mode="image" role="tab" aria-selected="false" aria-controls="image-message-mode">Image</button>
+            </div>
+            <div class="emoji-message-mode message-mode-panel" hidden>
+                <div class="emoji-row" aria-label="Emoji message options">
+                    <button class="emoji-chip" data-emoji="😀" title="😀 Grinning Face">😀</button>
+                    <button class="emoji-chip" data-emoji="😂" title="😂 Tears of Joy">😂</button>
+                    <button class="emoji-chip" data-emoji="😍" title="😍 Heart Eyes">😍</button>
+                    <button class="emoji-chip" data-emoji="🥰" title="🥰 Smiling with Hearts">🥰</button>
+                    <button class="emoji-chip" data-emoji="😎" title="😎 Cool Shades">😎</button>
+                    <button class="emoji-chip" data-emoji="🤔" title="🤔 Thinking Face">🤔</button>
+                    <button class="emoji-chip" data-emoji="😭" title="😭 Loudly Crying">😭</button>
+                    <button class="emoji-chip" data-emoji="😡" title="😡 Angry Face">😡</button>
+                    <button class="emoji-chip" data-emoji="😱" title="😱 Screaming">😱</button>
+                    <button class="emoji-chip" data-emoji="🥳" title="🥳 Partying">🥳</button>
+                    <button class="emoji-chip" data-emoji="👍" title="👍 Thumbs Up">👍</button>
+                    <button class="emoji-chip" data-emoji="👎" title="👎 Thumbs Down">👎</button>
+                    <button class="emoji-chip" data-emoji="👏" title="👏 Clapping">👏</button>
+                    <button class="emoji-chip" data-emoji="🙏" title="🙏 Folded Hands">🙏</button>
+                    <button class="emoji-chip" data-emoji="👌" title="👌 OK Hand">👌</button>
+                    <button class="emoji-chip" data-emoji="💪" title="💪 Flexed Biceps">💪</button>
+                    <button class="emoji-chip" data-emoji="❤️" title="❤️ Red Heart">❤️</button>
+                    <button class="emoji-chip" data-emoji="🔥" title="🔥 Fire">🔥</button>
+                    <button class="emoji-chip" data-emoji="✨" title="✨ Sparkles">✨</button>
+                    <button class="emoji-chip" data-emoji="🎉" title="🎉 Party Popper">🎉</button>
+                </div>
+            </div>
+            <div class="image-message-mode message-mode-panel flex items-center gap-2 min-w-0" hidden>
+                <label class="image-upload-button chip-btn shrink-0 cursor-pointer px-3 py-2" for="drawer-image-input">Choose File</label>
+                <input type="file" class="image-input sr-only" id="drawer-image-input" accept="image/*">
+                <span class="image-name flex-1 min-w-0 overflow-hidden text-text-secondary text-[11px] truncate">No file chosen</span>
+            </div>
+            <!-- Theme · Font -->
+            <div class="flex items-center gap-2.5" role="group" aria-label="Theme">
+                <button class="theme-swatch active" data-theme="ember" aria-label="Ember theme" aria-pressed="true"></button>
+                <button class="theme-swatch" data-theme="arctic" aria-label="Arctic theme" aria-pressed="false"></button>
+                <button class="theme-swatch" data-theme="toxic" aria-label="Toxic theme" aria-pressed="false"></button>
+                <button class="theme-swatch" data-theme="neon" aria-label="Neon theme" aria-pressed="false"></button>
+                <button class="theme-swatch" data-theme="sakura" aria-label="Sakura theme" aria-pressed="false"></button>
+            </div>
+            <select id="drawer-font-select" aria-label="Font" class="glass-input rounded-full pl-3.5 pr-9 py-2.5 text-sm outline-none cursor-pointer transition-all duration-300 focus:shadow-[0_0_16px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
+                <option value="Outfit">Outfit</option>
+                <option value="Fira Code">Fira Code</option>
+                <option value="Pacifico">Pacifico</option>
+                <option value="Playfair Display">Playfair Display</option>
+            </select>
+        </section>
+
+        <section class="flex flex-col gap-2.5 border-t border-white/5 pt-3.5" aria-labelledby="drawer-animations-heading">
+            <h2 id="drawer-animations-heading" class="m-0 text-text-primary text-[11px] font-semibold tracking-[1.8px]">ANIMATIONS</h2>
+            <!-- Simulations -->
+            <div class="presets-row grid grid-cols-2 gap-2 w-full">
+                <button class="preset-chip" data-text="KINETIC"><span class="chip-emoji" aria-hidden="true">⚡</span> Kinetic</button>
+                <button class="preset-chip" data-text="TORNADO"><span class="chip-emoji" aria-hidden="true">🌪️</span> Tornado</button>
+                <button class="preset-chip" data-text="BREEZE"><span class="chip-emoji" aria-hidden="true">💨</span> Breeze</button>
+                <button class="preset-chip" data-text="EXPLODE"><span class="chip-emoji" aria-hidden="true">💥</span> Explode</button>
+                <button class="preset-chip" data-text="TORUS"><span class="chip-emoji" aria-hidden="true">⭕</span> Torus</button>
+                <button class="preset-chip" data-text="MURMURATION"><span class="chip-emoji" aria-hidden="true">🐦</span> Murmuration</button>
+            </div>
+            <!-- Sound -->
+            <div class="flex items-center justify-between gap-2.5">
+                <span class="text-[11px] text-text-secondary">Sound</span>
+                <button class="audio-btn glass-chip w-10 h-10 rounded-full flex items-center justify-center border-0 cursor-pointer text-[15px] transition-all duration-200 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2" title="Toggle Sound (Mute/Unmute)" aria-pressed="true">
+                    <span class="audio-icon">🔊</span>
+                </button>
+            </div>
+        </section>
+
+        <section class="flex flex-col gap-2.5 border-t border-white/5 pt-3.5" aria-labelledby="drawer-sharing-heading">
+            <h2 id="drawer-sharing-heading" class="m-0 text-text-primary text-[11px] font-semibold tracking-[1.8px]">SHARING</h2>
+            <div class="flex gap-2 items-center">
+                <button class="capture-btn chip-btn flex-1 px-3 py-2.5 justify-center" title="Capture Screenshot">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    Capture
+                </button>
+                <button class="share-btn chip-btn flex-1 px-3 py-2.5 justify-center" title="Share Sculpture Link">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    Share
+                </button>
+            </div>
+        </section>
+
+        <dl class="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-text-secondary border-t border-white/5 pt-3.5">
+            <dt class="font-semibold text-text-primary">Rotate</dt>
+            <dd class="m-0">Arrows / 2-finger slide</dd>
+            <dt class="font-semibold text-text-primary">Zoom</dt>
+            <dd class="m-0">+/- / Pinch</dd>
+            <dt class="font-semibold text-text-primary">Explode</dt>
+            <dd class="m-0">Dbl-tap / Space</dd>
+        </dl>
+    </aside>
+
+    <!-- Mobile always-visible message input bar -->
+    <div id="input-bar" class="md:hidden fixed bottom-0 inset-x-0 z-40 glass-inputbar px-3 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]">
+        <div class="relative flex items-center">
+            <input type="text" id="mobile-text-input" value="Bring your message!" maxlength="25" autocomplete="off" class="w-full glass-input rounded-full pl-4 pr-14 py-2.5 text-sm outline-none transition-all duration-300 focus:shadow-[0_0_16px_var(--color-accent-glow)] focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2">
+            <span class="char-counter absolute right-4 text-[11px] text-text-secondary font-mono pointer-events-none transition-colors duration-300 is-warning:text-amber-500 is-danger:text-danger is-danger:font-semibold">0/25</span>
+        </div>
+    </div>
+
+    <!-- Toast alert element (info / success / error variants) -->
+    <div id="toast" class="fixed bottom-[96px] md:bottom-[320px] left-1/2 -translate-x-1/2 -translate-y-2.5 z-[100] px-5 py-2.5 rounded-full text-[13px] font-medium glass-dock pointer-events-none opacity-0 transition-all duration-300 is-show:opacity-100 is-show:translate-y-0"></div>
+
+    <!-- Screen Reader Live Announcements -->
+    <div id="sr-announce" class="sr-only" aria-live="polite"></div>
+
+    <!-- Stage: full-viewport canvas -->
+    <div id="stage" class="absolute inset-0 z-10">
+        <!-- Procedural impact flash overlay for explosions -->
+        <div id="flash" class="absolute inset-0 z-[2] pointer-events-none opacity-0 transition-opacity duration-100 ease-out is-active:opacity-100 [background:radial-gradient(circle_at_center,rgba(255,255,255,0.9),rgba(255,255,255,0)_70%)]" aria-hidden="true"></div>
+    </div>
+
+</body>
+
+</html>
