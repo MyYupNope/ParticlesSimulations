@@ -10,9 +10,15 @@
 - Physics kernels live in `js/physics-math.js` (shared CPU/worker evaluators) and are mirrored in the inline GLSL vertex shader in `js/main.js`. Any kinematics change must be applied to BOTH files in identical form (same constants, same formulas). Verify parity with `Select-String` on the changed constant names.
 - After any kernel edit: `node --check` both files, `npm run build`, then verify visually via a Playwright probe against `http://localhost:5173/ParticlesSimulations/` (dev server binds IPv6 — use `localhost`, never `127.0.0.1`).
 - Numeric continuity check convention: max frame-to-frame jump = 2.5u at cd=1.0 and cd=1.27, home-return error = 1e-10 at t=total+0.5s.
-- Full test battery (`npm test`) is deferred until the user asks for commit; quick gate is `npx playwright test tests/patterns.spec.js`.
-- When the user asks to "commit", this always means the full workflow: run `npm test`, commit changes, push to remote (`git push origin main`), and deploy to live (`npm run deploy`).
 - Scratch/debug scripts go in the repo root as `.tmp.mjs` (node resolves @playwright/test from project node_modules) and must be deleted after use. Screenshots go to `C:\Users\rodri\AppData\Local\Temp\opencode\shots\`.
+
+## Commit & Release Workflow (mandatory)
+- Any request from the user containing "commit" (e.g., "commit", "commit and push", "commit repo live", "release") **always and unconditionally** executes the complete 4-step pipeline in order:
+  1. **Test**: Run the full test battery (`npm test`).
+  2. **Commit**: Stage files and commit with a clear semantic message.
+  3. **Push**: Push commits to GitHub remote (`git push origin main`).
+  4. **Deploy Live**: Build and publish to GitHub Pages (`npm run deploy`).
+- Intermediate test runs during active development use `npm run test:quick` or `npx playwright test tests/patterns.spec.js`; the full `npm test` battery is reserved for the commit pipeline above.
 
 ## Encoding safety (mandatory)
 - NEVER run blanket encoding-repair passes (cp1252→UTF8 re-decode) over healthy files: .NET's cp1252 encoder silently substitutes `?` for any character it cannot map (emoji, box-drawing, Greek), destroying content while appearing to "succeed". Only ever repair files KNOWN to be mojibake-corrupted, and verify each repaired run afterward.
