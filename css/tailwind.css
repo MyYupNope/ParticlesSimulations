@@ -391,6 +391,42 @@ body {
   z-index: 1;
 }
 
+/* ── Custom charge cursor ─────────────── */
+/* The native arrow stays the default pointer over the stage. Only while a
+   splash is charging does #stage get .is-charging (set from js/main.js),
+   hiding the arrow so the swelling ring replaces it for the hold. Outer
+   element tracks position (updated per pointermove, no transition); the
+   inner ring carries the scale so release/cancel shrink with a short ease
+   instead of snapping. Touch devices are untouched by the media query. */
+@media (hover: hover) and (pointer: fine) {
+  #stage.is-charging {
+    cursor: none;
+  }
+}
+#cursor-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform;
+}
+#cursor-ring .ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.25), inset 0 0 6px rgba(255, 255, 255, 0.15);
+  transition: transform 110ms ease-out;
+}
+#cursor-ring.is-visible {
+  opacity: 1;
+}
+
 /* ── Wordmark particle dissolve & reform ── */
 #wordmark:focus-visible {
   outline: 2px solid var(--color-accent);

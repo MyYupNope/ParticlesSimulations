@@ -142,6 +142,7 @@ const CONFIG = {
     rippleTapAmp: 0.8,          // pebble amplitude
     rippleChargeAmp: 4.0,       // full-charge boulder amplitude
     chargeCancelPx: 8,          // pointer travel (screen px) that turns a charge into a drag
+    cursorChargeScale: 3.4,     // charge cursor swell: ring scales 1 -> 4.4 at full charge (~70px, 2x the old ~35px max)
 
     // Spring physics
     springK: 0.12,
@@ -415,7 +416,6 @@ uniform float uKnotScale;
 // Ages advance on the CPU each frame; the shader only flashes light on wavefronts
 // (displacement runs through the spring integrator on the CPU/worker side).
 uniform vec4 uRipples[8];
-uniform float uCharge;
 // Pre-explosion tap indicator: vec4 (x, y, age, tapCount) in local space,
 // tapCount 0 = inactive. Pure glow marker, no displacement.
 uniform vec4 uTapRing;
@@ -1074,9 +1074,9 @@ void main() {
     }
 
     // Smooth spatial gradient across the sculpture blended with mouse hover glow.
-    // uCharge widens and brightens the cursor glow while a splash is charging.
+    // Charge feedback lives in the DOM cursor ring (#cursor-ring), not here.
     float spatialGrad = clamp((homePosition.y + 12.0) / 24.0 + 0.15 * sin(0.12 * homePosition.x), 0.0, 1.0);
-    float heatRadius = uMouseInfluence + uCharge * 4.0;
+    float heatRadius = uMouseInfluence;
     float mouseHeat = clamp(1.0 - distance(uMouse, livePos) / heatRadius, 0.0, 1.0);
     // Passing ripple wavefront flash: light follows each expanding ring.
     // Mirrors the JS kernel's rippleProfile(amp) exactly — speed 9+2.5*amp,
@@ -1106,7 +1106,7 @@ void main() {
             waveGlow += sin(3.14159265 * ts) * tapFade * tapFade * 0.25;
         }
     }
-    float hoverMix = mix(spatialGrad, 1.0, mouseHeat * (0.9 + 0.5 * uCharge));
+    float hoverMix = mix(spatialGrad, 1.0, mouseHeat * 0.9);
     float tMix = clamp(max(hoverMix, waveGlow), 0.0, 1.0);
     vec3 themeColor = (tMix < 0.5)
         ? mix(uColorCold, uColorWarm, tMix * 2.0)
@@ -1403,6 +1403,33 @@ const interaction = {
     tapRing: { pending: null, x: 0, y: 0, age: 0, count: 0, active: false }
 };
 
+// Custom charge cursor: the native arrow is the default pointer over the
+// stage. While a hold-to-charge press is active the ring appears at the
+// pointer and swells with the charge (the old in-scene charge glow was
+// removed), and #stage gets .is-charging so the arrow hides and the ring
+// acts as the pointer for the duration of the hold. Release/cancel/explosion
+// hands back to the arrow. The outer element tracks position (set directly
+// on pointermove for zero latency); the inner ring scales per frame from the
+// charge ramp, so release shrinks via its short CSS transition.
+const chargeCursor = {
+    el: null,        // #cursor-ring (position wrapper)
+    elInner: null,   // .ring (scale carrier)
+    stageEl: null,   // #stage (carries .is-charging to hide the arrow)
+    x: 0,
+    y: 0,
+    visible: false,  // a charge press is currently in progress
+    scale: 1
+};
+
+// Track the charge cursor position; every pointermove/press updates it, the
+// frame loop decides visibility (charge.active) and scale (charge value).
+function updateChargeCursorFromEvent(e) {
+    if (!chargeCursor.el) return;
+    chargeCursor.x = e.clientX;
+    chargeCursor.y = e.clientY;
+    chargeCursor.el.style.transform = `translate3d(${chargeCursor.x}px, ${chargeCursor.y}px, 0)`;
+}
+
 // ---------------------------------------------
 // Hover Ripple Manager ("rock throw")
 // ---------------------------------------------
@@ -1515,7 +1542,6 @@ const uniforms = {
     uMScoutAmp: { value: 0.0 },
     uKnotScale: { value: 11.0 },
     uRipples: { value: Array.from({ length: RIPPLE_COUNT }, () => new Vector4(0, 0, 0, 0)) },
-    uCharge: { value: 0.0 },
     uTapRing: { value: new Vector4(0, 0, 0, 0) }
 };
 
@@ -4288,6 +4314,7 @@ function animate() {
         // Animations lock the stage: no wavefronts, no charging, no tap ping.
         if (hasActiveRipples(rippleState)) clearRipples();
         interaction.charge.active = false;
+        interaction.charge.value = 0;
         interaction.charge.release = null;
         interaction.tapRing.active = false;
         interaction.tapRing.pending = null;
@@ -4319,13 +4346,32 @@ function animate() {
             rippleCursor.lastEmitMs = performance.now();
         }
         rippleCursor.speedU = 0;
-        // Charge glow: cursor heat gathers while the user holds the press.
+        // Charge feedback: the custom cursor ring swells while the user holds the
+        // press. Value lives in interaction.charge (debug getter + splash amp).
         if (interaction.charge.active) {
             const held = performance.now() - interaction.charge.t0;
-            uniforms.uCharge.value = Math.min(1, Math.max(0,
+            interaction.charge.value = Math.min(1, Math.max(0,
                 (held - CONFIG.rippleTapGraceMs) / CONFIG.rippleChargeMs));
-        } else if (uniforms.uCharge.value !== 0.0) {
-            uniforms.uCharge.value = 0.0;
+        } else if (interaction.charge.value !== 0) {
+            interaction.charge.value = 0;
+        }
+    }
+    // The ring is the pointer only while a charge press is in progress: visibility
+    // follows charge.active (covers release, drag-cancel, second finger, window
+    // leave, and animation locks in one place), .is-charging hides the native
+    // arrow for the hold, and scale follows the charge value so an interrupted
+    // charge relaxes back to the resting size.
+    const charging = interaction.charge.active;
+    chargeCursor.visible = charging;
+    if (chargeCursor.el) {
+        chargeCursor.el.classList.toggle('is-visible', charging);
+        if (chargeCursor.stageEl) chargeCursor.stageEl.classList.toggle('is-charging', charging);
+    }
+    if (chargeCursor.elInner) {
+        const targetScale = 1 + interaction.charge.value * CONFIG.cursorChargeScale;
+        if (Math.abs(targetScale - chargeCursor.scale) > 0.001) {
+            chargeCursor.scale = targetScale;
+            chargeCursor.elInner.style.transform = `scale(${targetScale})`;
         }
     }
     ageRipples(rippleState, dt);
@@ -4878,6 +4924,11 @@ async function init() {
     setMessageModeUI(state.messageMode);
 
     // Event Listeners
+    // Charge cursor element refs (element exists in index.html).
+    chargeCursor.el = document.getElementById('cursor-ring');
+    chargeCursor.elInner = chargeCursor.el ? chargeCursor.el.firstElementChild : null;
+    chargeCursor.stageEl = document.getElementById('stage');
+
     // pointermove only records the latest coordinates; the actual unproject + drag
     // math runs once per frame in animate(), so high-Hz input never fires per-event work.
     window.addEventListener('pointermove', e => {
@@ -4887,8 +4938,11 @@ async function init() {
             pointerType: e.pointerType,
             pointerId: e.pointerId
         };
+        updateChargeCursorFromEvent(e);
     });
     window.addEventListener('pointerdown', onPointerDown);
+    // Presses sync the charge cursor too (synthetic dispatches may skip move).
+    window.addEventListener('pointerdown', updateChargeCursorFromEvent);
     // First-visit hint dismisses on the first real canvas interaction (pointer or
     // rotation/zoom key), not on clicks inside the UI chrome.
     window.addEventListener('pointerdown', e => {
@@ -5087,7 +5141,10 @@ window.__artzDebug = {
         return Array.from(rippleState);
     },
     get charge() {
-        return { active: interaction.charge.active, value: uniforms.uCharge.value };
+        return { active: interaction.charge.active, value: interaction.charge.value };
+    },
+    get cursor() {
+        return { visible: chargeCursor.visible, scale: chargeCursor.scale };
     },
     get tapRing() {
         return { active: interaction.tapRing.active, count: interaction.tapRing.count };

@@ -154,6 +154,74 @@ test('moving a held pointer turns the charge into a drag, not a splash', async (
     expect(await page.evaluate(() => window.__artzDebug.rippleCount)).toBe(0);
 });
 
+test('hold-to-charge swaps the arrow for a swelling ring; release hands back', async ({ page }) => {
+    await openPage(page, '/?t=Ripples');
+    const c = await stageCenter(page);
+
+    // Default: the native arrow is the pointer - no ring while hovering idle.
+    await page.mouse.move(c.x, c.y);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.__artzDebug.cursor.visible)).toBe(false);
+    expect(await page.evaluate(
+        () => document.getElementById('stage').classList.contains('is-charging')
+    )).toBe(false);
+
+    // Press and hold ~900ms in-page: the ring appears at the press point,
+    // the stage gets .is-charging (arrow hidden, ring is the pointer), and
+    // the ring scale tracks the charge ramp (150ms grace, full charge at
+    // 1000ms -> charge ~0.75 -> scale ~3.55). Dispatch and sample in one
+    // page task so protocol latency cannot skew the ramp sampling.
+    const { scales, wasCharging } = await page.evaluate(({ px, py }) => new Promise((resolve) => {
+        const stage = document.getElementById('stage');
+        const opts = {
+            pointerType: 'mouse', pointerId: 1, isPrimary: true,
+            clientX: px, clientY: py, bubbles: true
+        };
+        stage.dispatchEvent(new PointerEvent('pointermove', opts));
+        stage.dispatchEvent(new PointerEvent('pointerdown', opts));
+        const samples = [];
+        const t0 = performance.now();
+        const iv = setInterval(() => {
+            samples.push(window.__artzDebug.cursor.scale);
+            if (performance.now() - t0 >= 900) {
+                clearInterval(iv);
+                const wasCharging = window.__artzDebug.cursor.visible
+                    && document.getElementById('stage').classList.contains('is-charging');
+                stage.dispatchEvent(new PointerEvent('pointerup', opts));
+                resolve({ scales: samples, wasCharging });
+            }
+        }, 50);
+    }), { px: c.x, py: c.y });
+
+    // During the hold the ring was visible and had replaced the arrow.
+    expect(wasCharging).toBe(true);
+    // Grows monotonically from near-rest to a strong swell.
+    expect(scales[0]).toBeLessThan(1.2);
+    expect(scales[scales.length - 1]).toBeGreaterThan(3.0);
+    expect(Math.max(...scales)).toBeCloseTo(scales[scales.length - 1], 1);
+
+    // Release throws the rock as before and hands the pointer back to the
+    // arrow (ring hidden, rest size, is-charging cleared).
+    await expect.poll(() => maxRippleAmp(page), { timeout: 5000 }).toBeGreaterThan(2.0);
+    await expect.poll(
+        () => page.evaluate(() => ({
+            visible: window.__artzDebug.cursor.visible,
+            scale: window.__artzDebug.cursor.scale,
+            charging: document.getElementById('stage').classList.contains('is-charging')
+        })),
+        { timeout: 5000 }
+    ).toEqual({ visible: false, scale: 1, charging: false });
+
+    // Pressing on UI chrome never starts a charge: no ring anywhere.
+    const btn = await page.locator('#dock-toggle-btn').boundingBox();
+    await page.mouse.move(btn.x + btn.width / 2, btn.y + btn.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => window.__artzDebug.charge.active)).toBe(false);
+    expect(await page.evaluate(() => window.__artzDebug.cursor.visible)).toBe(false);
+    await page.mouse.up();
+});
+
 test('bigger splashes spread faster, reach farther, and last longer', async ({ page }) => {
     await openPage(page, '/?t=Ripples');
 
