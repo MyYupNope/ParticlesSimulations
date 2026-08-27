@@ -14,7 +14,14 @@ import {
     evaluateKineticParticle,
     evaluateExplosionParticle,
     evaluateTorusParticle,
-    evaluateMurmurationParticle
+    evaluateMurmurationParticle,
+    RIPPLE_COUNT,
+    createRippleState,
+    emitRipple,
+    ageRipples,
+    hasActiveRipples,
+    rippleOffset,
+    rippleProfile
 } from './physics-math.js';
 import {
     Clock,
@@ -30,6 +37,7 @@ import {
     DynamicDrawUsage,
     Vector3,
     Vector2,
+    Vector4,
     Matrix4,
     MathUtils,
     CanvasTexture,
@@ -122,16 +130,25 @@ const CONFIG = {
     contractionDurationFloor: 0.3,
     afterglowDuration: 0.2,
 
-    // Mouse repulsion
-    mouseInfluence: 6.0,    // hover/repulsion radius (reduced to 75% of the previous 8.0)
-    repulsionStrength: 12.0,
+    // Hover ripples ("rock throw")
+    mouseInfluence: 6.0,    // cursor glow radius (uMouse contract, tests rely on mapping)
+    rippleMoveSpeed: 60,        // pointer speed (u/s) that starts emitting skipping stones
+    rippleEmitIntervalMs: 90,   // min gap between movement ripples
+    rippleMoveAmpMin: 0.35,
+    rippleMoveAmpMax: 1.6,
+    rippleMoveAmpDiv: 300,      // speed / div = movement amplitude
+    rippleTapGraceMs: 150,      // releases shorter than this count as quick taps (pebbles)
+    rippleChargeMs: 1000,       // hold time to reach full charge
+    rippleTapAmp: 0.8,          // pebble amplitude
+    rippleChargeAmp: 4.0,       // full-charge boulder amplitude
+    chargeCancelPx: 8,          // pointer travel (screen px) that turns a charge into a drag
 
     // Spring physics
     springK: 0.12,
     springDamping: 0.82,
 
     // Interaction
-    tapCount: 5,
+    tapCount: 3,                    // triple-tap explodes (splash gestures stay single/double)
     tapWindowMs: 800,               // widened from 500ms
     inputDebounceMs: 150,           // debounce delay
 
@@ -394,9 +411,14 @@ uniform float uMBreathAmp;
 uniform float uMScoutAmp;
 // Torus knot auto-calibration (world units, from the camera frustum)
 uniform float uKnotScale;
-uniform vec3 uMouseWorld;
-uniform float uMousePushDistance;
-uniform float uMouseActive;
+// Hover ripples: vec4 slots (x, y, age, amp) in local space, amp <= 0 = inactive.
+// Ages advance on the CPU each frame; the shader only flashes light on wavefronts
+// (displacement runs through the spring integrator on the CPU/worker side).
+uniform vec4 uRipples[8];
+uniform float uCharge;
+// Pre-explosion tap indicator: vec4 (x, y, age, tapCount) in local space,
+// tapCount 0 = inactive. Pure glow marker, no displacement.
+uniform vec4 uTapRing;
 
 attribute vec3 homePosition;
 attribute vec4 sourceColor;
@@ -1049,20 +1071,43 @@ void main() {
                 livePos = evalExplosionGPU(homePosition, aRandomDir, aRandomSpeed, uMaxDist, uExpDuration, uDriftDuration, uContractionDuration, uExplosionElapsed);
             }
         }
-        if (uMouseActive > 0.5) {
-            vec2 diff = livePos.xy - uMouseWorld.xy;
-            float d = length(diff);
-            if (d < uMouseInfluence && d > 0.001) {
-                float f = (1.0 - d / uMouseInfluence) * uMousePushDistance;
-                livePos.xy += (diff / d) * f;
+    }
+
+    // Smooth spatial gradient across the sculpture blended with mouse hover glow.
+    // uCharge widens and brightens the cursor glow while a splash is charging.
+    float spatialGrad = clamp((homePosition.y + 12.0) / 24.0 + 0.15 * sin(0.12 * homePosition.x), 0.0, 1.0);
+    float heatRadius = uMouseInfluence + uCharge * 4.0;
+    float mouseHeat = clamp(1.0 - distance(uMouse, livePos) / heatRadius, 0.0, 1.0);
+    // Passing ripple wavefront flash: light follows each expanding ring.
+    // Mirrors the JS kernel's rippleProfile(amp) exactly — speed 9+2.5*amp,
+    // decay 2.2-0.3*amp, width 2.0+0.75*amp — bigger splashes spread faster,
+    // reach farther, and stay bright en route.
+    float waveGlow = 0.0;
+    for (int r = 0; r < 8; r++) {
+        vec4 rp = uRipples[r];
+        if (rp.w > 0.0) {
+            float dist = distance(livePos.xy, rp.xy);
+            float ringR = rp.z * (9.0 + 2.5 * rp.w);
+            float s = 1.0 - abs(dist - ringR) / (2.0 + 0.75 * rp.w);
+            if (s > 0.0) {
+                waveGlow += sin(3.14159265 * s) * exp(-(2.2 - 0.3 * rp.w) * rp.z) * rp.w * 0.35;
             }
         }
     }
-
-    // Smooth spatial gradient across the sculpture blended with mouse hover glow
-    float spatialGrad = clamp((homePosition.y + 12.0) / 24.0 + 0.15 * sin(0.12 * homePosition.x), 0.0, 1.0);
-    float mouseHeat = clamp(1.0 - distance(uMouse, livePos) / uMouseInfluence, 0.0, 1.0);
-    float tMix = clamp(mix(spatialGrad, 1.0, mouseHeat * 0.9), 0.0, 1.0);
+    waveGlow = clamp(waveGlow, 0.0, 1.0);
+    // Tap indicator ping: a small, quick sonar ring marking each of the first
+    // two taps of the explode gesture. Subtle by design — light only, no push.
+    if (uTapRing.w > 0.0) {
+        float tapDist = distance(livePos.xy, uTapRing.xy);
+        float tapR = uTapRing.z * 10.0 * (1.0 + 0.35 * (uTapRing.w - 1.0));
+        float tapFade = max(0.0, 1.0 - uTapRing.z * 2.0);
+        float ts = 1.0 - abs(tapDist - tapR) / 1.2;
+        if (ts > 0.0) {
+            waveGlow += sin(3.14159265 * ts) * tapFade * tapFade * 0.25;
+        }
+    }
+    float hoverMix = mix(spatialGrad, 1.0, mouseHeat * (0.9 + 0.5 * uCharge));
+    float tMix = clamp(max(hoverMix, waveGlow), 0.0, 1.0);
     vec3 themeColor = (tMix < 0.5)
         ? mix(uColorCold, uColorWarm, tMix * 2.0)
         : mix(uColorWarm, uColorHot, (tMix - 0.5) * 2.0);
@@ -1169,7 +1214,7 @@ const state = {
     activeImage: null,
     imageName: '',
     activePreset: null,  // Tracks which preset chip is currently selected
-    lastRandomPreset: null, // Random preset picked by dbl-tap/Space shortcuts
+    lastRandomPreset: null, // Random preset picked by triple-tap/Space shortcuts
     activeEmoji: null,   // Set when an emoji is picked from the list; cleared by typing
     lastEmoji: null,     // Remembered last picked emoji, restored when returning to Emoji mode
     lastImage: null,     // Remembered last uploaded image, restored when returning to Image mode
@@ -1341,7 +1386,49 @@ const interaction = {
     prevMouseX: 0,
     prevMouseY: 0,
     pendingPointer: null, // Coalesced latest pointer coords, consumed once per frame
+    // Hold-to-charge splash state: press starts the charge, movement cancels it,
+    // release throws the "rock". Release is deferred to the frame loop so the
+    // splash lands with fresh world->local matrices.
+    charge: {
+        active: false,
+        pointerId: -1,
+        x0: 0,
+        y0: 0,
+        t0: 0,
+        value: 0,
+        release: null // { clientX, clientY, charge } awaiting frame-loop consumption
+    },
+    // Pre-explosion tap indicator ping (rendered as uTapRing in the shader):
+    // position stored in client coords, converted to local in the frame loop.
+    tapRing: { pending: null, x: 0, y: 0, age: 0, count: 0, active: false }
 };
+
+// ---------------------------------------------
+// Hover Ripple Manager ("rock throw")
+// ---------------------------------------------
+// Flat (x, y, age, amp) slots in sculpture-local space, shared verbatim with the
+// worker and CPU fallback. Emission sources: fast pointer sweeps (skipping
+// stones) and press-hold releases (charged splashes).
+const rippleState = createRippleState();
+const rippleCursor = {
+    idx: 0,
+    lastEmitMs: 0,
+    prevCX: 0,
+    prevCY: 0,
+    hasPrevClient: false,
+    speedU: 0 // one-shot screen-space pointer speed (u/s), consumed each frame
+};
+const _rippleRes = { x: 0, y: 0, z: 0 };
+const _ripplePoint = new Vector3();
+
+function emitHoverRipple(x, y, amp) {
+    emitRipple(rippleState, rippleCursor.idx, x, y, amp);
+    rippleCursor.idx = (rippleCursor.idx + 1) % RIPPLE_COUNT;
+}
+
+function clearRipples() {
+    rippleState.fill(0);
+}
 
 // Shader uniforms
 const uniforms = {
@@ -1427,9 +1514,9 @@ const uniforms = {
     uMBreathAmp: { value: 1.0 },
     uMScoutAmp: { value: 0.0 },
     uKnotScale: { value: 11.0 },
-    uMouseWorld: { value: new Vector3(-1000, -1000, 0) },
-    uMousePushDistance: { value: CONFIG.repulsionStrength },
-    uMouseActive: { value: 0.0 }
+    uRipples: { value: Array.from({ length: RIPPLE_COUNT }, () => new Vector4(0, 0, 0, 0)) },
+    uCharge: { value: 0.0 },
+    uTapRing: { value: new Vector4(0, 0, 0, 0) }
 };
 
 let breezeSeqCounter = 0;
@@ -2424,7 +2511,8 @@ function updateTrails() {
     const isActivelyMoving = physics.positionsDirty
         || (physics.explosionStartTime >= 0)
         || (interaction.isDragging)
-        || (interaction.mouseLocal && interaction.mouseLocal.x > -500);
+        || (interaction.mouseLocal && interaction.mouseLocal.x > -500)
+        || hasActiveRipples(rippleState);
 
     if (!isActivelyMoving) {
         if (render.trailSettleFrames >= 20) {
@@ -2595,6 +2683,19 @@ function updateMouse(clientX, clientY) {
         _vec.set(nx, ny, 0).unproject(render.camera);
         interaction.mouseWorld.copy(_vec);
         interaction.mouseWorld.z = 0;
+    }
+}
+
+// Screen client coords -> sculpture-local point, mirroring updateMouse's
+// unprojection. Uses interaction.invMatrix, refreshed every animate() frame.
+// Leaves `out` untouched for non-orthographic cameras (never the case here).
+function clientPointToLocal(clientX, clientY, out) {
+    const rect = render.renderer.domElement.getBoundingClientRect();
+    const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = -((clientY - rect.top) / rect.height) * 2 + 1;
+    if (render.camera.isOrthographicCamera) {
+        _vec.set(nx, ny, 0).unproject(render.camera);
+        out.set(_vec.x, _vec.y, 0).applyMatrix4(interaction.invMatrix);
     }
 }
 
@@ -2959,12 +3060,12 @@ function triggerExplosion(force = false) {
     setAnimationControlsDisabled(true);
 
     // Tuck the options menu away while the animation plays (it returns when the
-    // animation finishes). This runs for every trigger — preset chip, dbl-tap,
+    // animation finishes). This runs for every trigger — preset chip, triple-tap,
     // multi-tap, or Space — so site sparks behave exactly like menu sparks.
     closeMenuForAnimation();
 
     // Surface which animation is running in the context line, whichever way it
-    // was sparked (preset chip, dbl-tap, or Space).
+    // was sparked (preset chip, triple-tap, or Space).
     const presetName = state.activePreset || state.lastRandomPreset;
     const preset = presetName && CONFIG.presets[presetName] ? CONFIG.presets[presetName] : null;
     updateContextLine(preset && preset.description ? preset.description : contextForMode(state.messageMode));
@@ -3055,7 +3156,7 @@ function resetToDefaultExplosion() {
 }
 
 // Apply active preset's settings, or pick a random preset if none is selected.
-// Used by dblclick / Space / multi-tap shortcuts.
+// Used by the triple-tap / Space explosion shortcuts.
 function applyActiveOrRandomPreset() {
     if (physics.explosionStartTime >= 0) return;
     if (state.activePreset) {
@@ -3159,7 +3260,7 @@ async function applyPresetExplosion(presetName, shouldScatter = false) {
 // ---------------------------------------------
 // Pointer & Gesture Handlers
 // ---------------------------------------------
-// Any pointer/touch/double-click that starts on UI chrome must not drive the canvas.
+// Any pointer/touch gesture that starts on UI chrome must not drive the canvas.
 const UI_GUARD_SELECTOR = '#drawer, #menu-toggle-btn, #drawer-backdrop, #dock, #topbar, #input-bar, #hint, #toast';
 const isUIEvent = (e) => !!e.target.closest(UI_GUARD_SELECTOR);
 
@@ -3173,13 +3274,40 @@ function onPointerDown(e) {
         interaction.prevMouseY = e.clientY;
     }
 
-    if (e.pointerType === 'touch' && !e.isPrimary) return;
+    if (e.pointerType === 'touch' && !e.isPrimary) {
+        // Second finger (pinch) cancels any active hold-to-charge splash.
+        interaction.charge.active = false;
+        interaction.charge.release = null;
+        return;
+    }
+
+    // Begin hold-to-charge splash. Release is handled in onPointerUp and lands
+    // in the frame loop with fresh world->local matrices.
+    if (physics.explosionStartTime < 0) {
+        interaction.charge.active = true;
+        interaction.charge.pointerId = e.pointerId;
+        interaction.charge.x0 = e.clientX;
+        interaction.charge.y0 = e.clientY;
+        interaction.charge.t0 = performance.now();
+        interaction.charge.value = 0;
+        interaction.charge.release = null;
+    }
 
     const now = performance.now();
     interaction.clickCount = (now - interaction.lastClickTime < CONFIG.tapWindowMs)
         ? interaction.clickCount + 1
         : 1;
     interaction.lastClickTime = now;
+
+    // Subtle pre-explosion tap ping (uTapRing): taps 1 and 2 of the explode
+    // gesture mark their position; the exploding tap needs no marker.
+    if (interaction.clickCount < CONFIG.tapCount && physics.explosionStartTime < 0) {
+        interaction.tapRing.pending = {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            count: interaction.clickCount
+        };
+    }
 
     if (interaction.clickCount >= CONFIG.tapCount) {
         applyActiveOrRandomPreset(); // Use active preset or random if none selected
@@ -3229,10 +3357,23 @@ function onTouchMove(e) {
     }
 }
 
-// Reset desktop drag variables
+// Reset desktop drag variables; release any hold-to-charge splash. A quick tap
+// (< tapGraceMs) throws a pebble (charge 0); longer holds scale up to a boulder.
 function onPointerUp(e) {
     if (e.pointerType === 'mouse') {
         interaction.isDragging = false;
+    }
+    if (interaction.charge.active && e.pointerId === interaction.charge.pointerId) {
+        interaction.charge.active = false;
+        if (e.type === 'pointercancel') return; // browser took over — no splash
+        const held = performance.now() - interaction.charge.t0;
+        const c = Math.min(1, Math.max(0,
+            (held - CONFIG.rippleTapGraceMs) / CONFIG.rippleChargeMs));
+        interaction.charge.release = {
+            clientX: interaction.charge.x0,
+            clientY: interaction.charge.y0,
+            charge: c
+        };
     }
 }
 
@@ -4096,6 +4237,26 @@ function animate() {
     // Consume the coalesced pointer (once per frame) — unproject + drag math run here.
     if (interaction.pendingPointer) {
         const p = interaction.pendingPointer;
+        // A charge whose pointer travels beyond the threshold has become a drag
+        // (rotation) — cancel the splash instead of firing it.
+        if (interaction.charge.active
+            && p.pointerId === interaction.charge.pointerId
+            && Math.hypot(p.clientX - interaction.charge.x0, p.clientY - interaction.charge.y0) > CONFIG.chargeCancelPx) {
+            interaction.charge.active = false;
+        }
+        // Screen-space pointer speed (u/s) feeds the skipping-stone emitter, so
+        // object rotation under a still cursor can never fake a gesture.
+        if (rippleCursor.hasPrevClient) {
+            const rect = render.renderer.domElement.getBoundingClientRect();
+            const uPerPx = (camera.right - camera.left) / Math.max(rect.width, 1);
+            rippleCursor.speedU = Math.hypot(
+                p.clientX - rippleCursor.prevCX,
+                p.clientY - rippleCursor.prevCY
+            ) * uPerPx / Math.max(dt, 1e-4);
+        }
+        rippleCursor.prevCX = p.clientX;
+        rippleCursor.prevCY = p.clientY;
+        rippleCursor.hasPrevClient = true;
         updateMouse(p.clientX, p.clientY);
         if (interaction.isDragging && p.pointerType === 'mouse') {
             const dx = p.clientX - interaction.prevMouseX;
@@ -4122,6 +4283,81 @@ function animate() {
         uniforms.uMouse.value.copy(interaction.mouseLocal);
     }
 
+    // ---- Hover ripples: charge release, skipping stones, aging, uniform sync ----
+    if (isExploding) {
+        // Animations lock the stage: no wavefronts, no charging, no tap ping.
+        if (hasActiveRipples(rippleState)) clearRipples();
+        interaction.charge.active = false;
+        interaction.charge.release = null;
+        interaction.tapRing.active = false;
+        interaction.tapRing.pending = null;
+    } else {
+        // Release a held charge ("rock throw"), deferred from onPointerUp so the
+        // splash lands with this frame's fresh world->local matrices.
+        if (interaction.charge.release) {
+            const rel = interaction.charge.release;
+            interaction.charge.release = null;
+            clientPointToLocal(rel.clientX, rel.clientY, _ripplePoint);
+            if (_ripplePoint.x > -500) {
+                const amp = CONFIG.rippleTapAmp
+                    + (CONFIG.rippleChargeAmp - CONFIG.rippleTapAmp) * rel.charge;
+                emitHoverRipple(_ripplePoint.x, _ripplePoint.y,
+                    amp * (isMotionReduced ? 0.5 : 1.0));
+            }
+        }
+        // Skipping stones: fast pointer sweeps emit rate-limited wavefronts.
+        // Speed is the one-shot screen-space value recorded while consuming
+        // pendingPointer; frames without pointer motion carry zero speed.
+        const mlsx = interaction.mouseLocal.x;
+        const mlsy = interaction.mouseLocal.y;
+        if (mlsx > -500 && !interaction.isDragging
+            && rippleCursor.speedU > CONFIG.rippleMoveSpeed
+            && performance.now() - rippleCursor.lastEmitMs > CONFIG.rippleEmitIntervalMs) {
+            const amp = Math.min(CONFIG.rippleMoveAmpMax,
+                Math.max(CONFIG.rippleMoveAmpMin, rippleCursor.speedU / CONFIG.rippleMoveAmpDiv));
+            emitHoverRipple(mlsx, mlsy, amp * (isMotionReduced ? 0.5 : 1.0));
+            rippleCursor.lastEmitMs = performance.now();
+        }
+        rippleCursor.speedU = 0;
+        // Charge glow: cursor heat gathers while the user holds the press.
+        if (interaction.charge.active) {
+            const held = performance.now() - interaction.charge.t0;
+            uniforms.uCharge.value = Math.min(1, Math.max(0,
+                (held - CONFIG.rippleTapGraceMs) / CONFIG.rippleChargeMs));
+        } else if (uniforms.uCharge.value !== 0.0) {
+            uniforms.uCharge.value = 0.0;
+        }
+    }
+    ageRipples(rippleState, dt);
+    const ripU = uniforms.uRipples.value;
+    for (let r = 0; r < RIPPLE_COUNT; r++) {
+        const o = r * 4;
+        ripU[r].set(rippleState[o], rippleState[o + 1], rippleState[o + 2], rippleState[o + 3]);
+    }
+
+    // Tap indicator ping: fresh position per tap (fresh local matrices), quick fade.
+    const tapRing = interaction.tapRing;
+    if (!isExploding) {
+        if (tapRing.pending) {
+            const tp = tapRing.pending;
+            tapRing.pending = null;
+            clientPointToLocal(tp.clientX, tp.clientY, _ripplePoint);
+            if (_ripplePoint.x > -500) {
+                tapRing.x = _ripplePoint.x;
+                tapRing.y = _ripplePoint.y;
+                tapRing.age = 0;
+                tapRing.count = tp.count;
+                tapRing.active = true;
+            }
+        } else if (tapRing.active) {
+            tapRing.age += dt;
+            if (tapRing.age > 0.55) tapRing.active = false;
+        }
+    }
+    uniforms.uTapRing.value.set(
+        tapRing.x, tapRing.y, tapRing.age, tapRing.active ? tapRing.count : 0
+    );
+
     // Spring mechanics variables calculation
     const posAttr = particles.geometry.attributes.position;
     const pos = posAttr.array;
@@ -4137,10 +4373,7 @@ function animate() {
         funnelRadialX,
         funnelRadialZ
     } = physics;
-    const mouseInfluence  = CONFIG.mouseInfluence;
-    const mouseInfluence2 = mouseInfluence * mouseInfluence;
-    const repulsionStr    = CONFIG.repulsionStrength;
-    const ml = interaction.mouseLocal;
+    const hasRipples = hasActiveRipples(rippleState);
 
     // Damp calculations cached unless frame-time delta fluctuates significantly
     let kFrame, dampFrame;
@@ -4311,10 +4544,6 @@ function animate() {
             uniforms.uKnotScale.value = knotScale;
             state.pattern.knotScale = knotScale;   // CPU fallback / snapshot parity
         }
-        uniforms.uMouseWorld.value.set(-1000, -1000, 0);
-        uniforms.uMousePushDistance.value = 0.0;
-        uniforms.uMouseInfluence.value = 0.0;
-        uniforms.uMouseActive.value = 0.0;
     } else {
         uniforms.uGpuPhysics.value = 0.0;
 
@@ -4344,14 +4573,14 @@ function animate() {
                         springDisp: slot.springDisp,
                         springVel: slot.springVel,
                         count, dt, elapsed,
-                        mouseLocal: isExploding ? { x: 99999, y: 99999, z: 99999 } : { x: ml.x, y: ml.y, z: ml.z },
+                        // Ripple wavefronts in local space; the worker ignores them
+                        // while an animation runs (amps are already zeroed above).
+                        ripples: rippleState,
                         kFrame, dampFrame,
                         expansionDuration: activeExpDuration,
                         driftDuration: (activeStyle === 0 || activeStyle === 3 || activeStyle === -1) ? 3.0 : 0.0,
                         contractionDuration: activeContrDuration,
                         explosionMaxDistMultiplier: activeMaxDistMult,
-                        mouseInfluence: isExploding ? 0 : mouseInfluence,
-                        repulsionStr: isExploding ? 0 : repulsionStr,
                         breeze: activeBreezeConfig,
                         sourceGeneration: physics.sourceGeneration,
                         motionToken: physics.motionToken
@@ -4429,20 +4658,13 @@ function animate() {
                 }
 
                 const cur_x = pos[ix], cur_y = pos[iy], cur_z = pos[iz];
-                const ddx = cur_x - ml.x;
-                const ddy = cur_y - ml.y;
-                const ddz = cur_z - ml.z;
-                const d2 = ddx * ddx + ddy * ddy + ddz * ddz;
 
                 let tdx = 0, tdy = 0, tdz = 0;
-                if (!isExploding && d2 < mouseInfluence2 && d2 > 0.00001) {
-                    const d    = Math.sqrt(d2);
-                    const invD = 1.0 / d;
-                    const force = (mouseInfluence - d) / mouseInfluence;
-                    const push  = repulsionStr * force;
-                    tdx = ddx * invD * push;
-                    tdy = ddy * invD * push;
-                    tdz = ddz * invD * push;
+                if (hasRipples) {
+                    rippleOffset(cur_x, cur_y, cur_z, rippleState, _rippleRes);
+                    tdx = _rippleRes.x;
+                    tdy = _rippleRes.y;
+                    tdz = _rippleRes.z;
                 }
 
                 springVel[ix] = (springVel[ix] + (tdx - springDisp[ix]) * kFrame) * dampFrame;
@@ -4662,7 +4884,8 @@ async function init() {
         interaction.pendingPointer = {
             clientX: e.clientX,
             clientY: e.clientY,
-            pointerType: e.pointerType
+            pointerType: e.pointerType,
+            pointerId: e.pointerId
         };
     });
     window.addEventListener('pointerdown', onPointerDown);
@@ -4680,13 +4903,13 @@ async function init() {
         interaction.mouseWorld.set(-1000, -1000, 0);
         uniforms.uMouse.value.set(-1000, -1000, 0);
         interaction.isDragging = false;
+        // Leaving the window mid-hold drops the charge without a splash.
+        interaction.charge.active = false;
+        interaction.charge.release = null;
     });
-    window.addEventListener('dblclick', e => {
-        if (isUIEvent(e)) return;
-        if (physics.explosionStartTime >= 0) return;
-        applyActiveOrRandomPreset(); // Use active preset or random if none selected
-        triggerExplosion();
-    });
+    // Explosion gesture = triple-tap, counted by the multi-tap counter in
+    // onPointerDown (CONFIG.tapCount). Double-taps stay reserved for pebble
+    // splashes, keeping splash and explode gestures clearly separated.
     window.addEventListener('touchstart', onTouchStart, { passive: false });
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('touchend', onTouchEnd);
@@ -4759,6 +4982,11 @@ async function init() {
     }
 
     animate();
+
+    // Interactivity flag: flipped after every event listener is attached, so
+    // the browser suite can wait for a fully wired page instead of racing
+    // listener registration from openPage().
+    window.__artzReady = true;
 }
 
 // ---------------------------------------------
@@ -4848,6 +5076,31 @@ window.__artzDebug = {
         };
     },
     triggerExplosion,
+    get rippleCount() {
+        let n = 0;
+        for (let o = 3; o < rippleState.length; o += 4) {
+            if (rippleState[o] > 0) n++;
+        }
+        return n;
+    },
+    get ripples() {
+        return Array.from(rippleState);
+    },
+    get charge() {
+        return { active: interaction.charge.active, value: uniforms.uCharge.value };
+    },
+    get tapRing() {
+        return { active: interaction.tapRing.active, count: interaction.tapRing.count };
+    },
+    // Test hook: inject a wavefront in local space directly, so kernel +
+    // integrator tests stay deterministic under software-rendered frame jitter.
+    emitTestRipple(x, y, amp) {
+        emitHoverRipple(x, y, amp);
+    },
+    // Intensity-driven wavefront dynamics (speed / reach / decay / width).
+    rippleProfile(amp) {
+        return rippleProfile(amp);
+    },
 };
 
 init();

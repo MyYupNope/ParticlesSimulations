@@ -74,8 +74,10 @@ async function exerciseTornadoOrigin(page, url) {
     }, null, { timeout: 12_000 });
 
     // Wait for the blast to finish so the next trigger is not swallowed.
+    // The tornado choreography itself runs ~15s; under 2x parallel software
+    // rendering the wall-clock tail needs more headroom than 15s.
     await page.waitForFunction(() => !window.__artzDebug.snapshot(1).explosionActive, null, {
-        timeout: 15_000
+        timeout: 30_000
     });
     await page.waitForTimeout(100);
 
@@ -89,7 +91,7 @@ async function exerciseTornadoOrigin(page, url) {
     assertOriginCapture(blast);
 
     await page.waitForFunction(() => !window.__artzDebug.snapshot(1).explosionActive, null, {
-        timeout: 15_000
+        timeout: 30_000
     });
     await page.waitForTimeout(100);
 

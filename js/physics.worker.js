@@ -1,9 +1,10 @@
 // ---------------------------------------------
 // Physics Web Worker — Multi-threaded Particle Engine
 // ---------------------------------------------
-// Offloads O(N) spring relaxation, explosion trajectory calculations, and mouse
-// repulsion from the main UI thread, ensuring a rock-solid 60 FPS even with 30k+
-// particles. Operates via double-buffered Float32Arrays transferred with zero-copy.
+// Offloads O(N) spring relaxation, explosion trajectory calculations, and hover
+// ripple wavefront forces from the main UI thread, ensuring a rock-solid 60 FPS
+// even with 30k+ particles. Operates via double-buffered Float32Arrays
+// transferred with zero-copy.
 
 import {
     evaluateTornadoParticle,
@@ -11,7 +12,9 @@ import {
     evaluateKineticParticle,
     evaluateExplosionParticle,
     evaluateTorusParticle,
-    evaluateMurmurationParticle
+    evaluateMurmurationParticle,
+    rippleOffset,
+    hasActiveRipples
 } from './physics-math.js';
 
 let posHome = null;             // Initial rest coordinates (persistent Float32Array)
@@ -29,6 +32,7 @@ let lastMotionToken = -1;       // Generation tracker for distinct blast phases
 
 const DIRECTIONS_VERIFY = 384;
 const _workerRes = { x: 0, y: 0, z: 0 };
+const _workerRipple = { x: 0, y: 0, z: 0 };
 
 self.onmessage = function (e) {
     const { type, data, seq } = e.data;
@@ -156,15 +160,13 @@ self.onmessage = function (e) {
             count,
             dt,
             elapsed,
-            mouseLocal,
+            ripples,
             kFrame,
             dampFrame,
             expansionDuration,
             driftDuration,
             contractionDuration,
             explosionMaxDistMultiplier,
-            mouseInfluence,
-            repulsionStr,
             sourceGeneration: updateSourceGeneration,
             motionToken
         } = data;
@@ -179,10 +181,9 @@ self.onmessage = function (e) {
         const isExploding = (elapsed >= 0);
         const origin = explosionOrigin || posHome;
 
-        const mx = (!isExploding && mouseLocal) ? mouseLocal.x : 99999;
-        const my = (!isExploding && mouseLocal) ? mouseLocal.y : 99999;
-        const mz = (!isExploding && mouseLocal) ? mouseLocal.z : 99999;
-        const mouseInfSq = (!isExploding && mouseInfluence > 0) ? mouseInfluence * mouseInfluence : 0;
+        // Wavefronts are only honored at rest; the main thread zeroes the amps
+        // while an animation runs, so this is belt-and-suspenders parity.
+        const hasRipples = !isExploding && ripples && hasActiveRipples(ripples);
 
         const isTornado = activeStyle === 1
             && pattern.funnelHeight
@@ -258,23 +259,20 @@ self.onmessage = function (e) {
             const currentY = by + springDisp[iy];
             const currentZ = bz + springDisp[iz];
 
-            const dx = currentX - mx;
-            const dy = currentY - my;
-            const dz = currentZ - mz;
-            const distSq = dx * dx + dy * dy + dz * dz;
-
-            if (distSq < mouseInfSq && distSq > 0.001) {
-                const dist = Math.sqrt(distSq);
-                const force = (1 - dist / mouseInfluence) * repulsionStr * 60.0;
-                const invDist = 1 / dist;
-                springVel[ix] += dx * invDist * force * dt;
-                springVel[iy] += dy * invDist * force * dt;
-                springVel[iz] += dz * invDist * force * dt;
+            // Ripple wavefront target-seek: passing rings push particles outward
+            // and the spring then relaxes the displacement home. Same integrator
+            // form as the main-thread CPU fallback (kernel parity).
+            let tdx = 0, tdy = 0, tdz = 0;
+            if (hasRipples) {
+                rippleOffset(currentX, currentY, currentZ, ripples, _workerRipple);
+                tdx = _workerRipple.x;
+                tdy = _workerRipple.y;
+                tdz = _workerRipple.z;
             }
 
-            springVel[ix] = (springVel[ix] - springDisp[ix] * kFrame) * dampFrame;
-            springVel[iy] = (springVel[iy] - springDisp[iy] * kFrame) * dampFrame;
-            springVel[iz] = (springVel[iz] - springDisp[iz] * kFrame) * dampFrame;
+            springVel[ix] = (springVel[ix] + (tdx - springDisp[ix]) * kFrame) * dampFrame;
+            springVel[iy] = (springVel[iy] + (tdy - springDisp[iy]) * kFrame) * dampFrame;
+            springVel[iz] = (springVel[iz] + (tdz - springDisp[iz]) * kFrame) * dampFrame;
 
             springDisp[ix] += springVel[ix] * dt60;
             springDisp[iy] += springVel[iy] * dt60;

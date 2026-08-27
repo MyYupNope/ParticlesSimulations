@@ -852,3 +852,97 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
     if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
     return { x: rx, y: ry, z: rz };
 }
+
+// ---------------------------------------------
+// Hover Ripples — Shared Interactive Wave Kernel
+// ---------------------------------------------
+// Expanding ring wavefronts emitted by pointer gestures ("rock throw" hover).
+// State is a flat Float32Array of RIPPLE_COUNT quadruples (x, y, age, amp) in
+// sculpture-local space. Ages advance on the main thread each frame, so the
+// worker and CPU fallback stay clock-free: they read the same array verbatim.
+
+export const RIPPLE_COUNT = 8;
+export const RIPPLE_MAX_RADIUS = 40.0; // hard reach cap (u)
+export const RIPPLE_HEIGHT = 2.2;      // peak radial push at amp = 1 (u)
+export const RIPPLE_Z_LIFT = 0.9;      // depth lift at amp = 1 (u)
+
+// Intensity-driven wavefront profile: the bigger the splash, the faster it
+// spreads, the more distant it reaches, and the longer it stays visible.
+// Pebble (amp 0.8): 11 u/s, ~17.6u reach, fades near origin.
+// Boulder (amp 4.0): 19 u/s, 40u full sweep, still bright at the far edge.
+// All engines (worker, CPU fallback, GLSL glow) derive from this single
+// pure function so no extra state travels with the slots.
+export function rippleProfile(amp) {
+    const speed = 9.0 + 2.5 * amp;             // expansion speed (u/s)
+    const maxRadius = Math.min(RIPPLE_MAX_RADIUS, 12.0 + 7.0 * amp);
+    return {
+        speed,
+        maxRadius,
+        lifetime: maxRadius / speed,           // ring dies exactly at its reach
+        decay: 2.2 - 0.3 * amp,                // bigger splashes stay visible en route
+        width: 2.0 + 0.75 * amp                // ring half-width (u)
+    };
+}
+
+export function createRippleState() {
+    return new Float32Array(RIPPLE_COUNT * 4);
+}
+
+// Write a ripple into slot idx; age starts at 0. Amp <= 0 marks the slot empty.
+export function emitRipple(ripples, idx, x, y, amp) {
+    const o = idx * 4;
+    ripples[o] = x;
+    ripples[o + 1] = y;
+    ripples[o + 2] = 0;
+    ripples[o + 3] = amp;
+}
+
+// Advance wavefront ages; expired slots are zeroed (amp = 0 = inactive).
+export function ageRipples(ripples, dt) {
+    for (let o = 0; o < ripples.length; o += 4) {
+        if (ripples[o + 3] <= 0) continue;
+        ripples[o + 2] += dt;
+        const profile = rippleProfile(ripples[o + 3]);
+        const radius = ripples[o + 2] * profile.speed;
+        if (ripples[o + 2] > profile.lifetime || radius > profile.maxRadius) {
+            ripples[o + 3] = 0;
+        }
+    }
+}
+
+// True when at least one wavefront is still traveling.
+export function hasActiveRipples(ripples) {
+    for (let o = 3; o < ripples.length; o += 4) {
+        if (ripples[o] > 0) return true;
+    }
+    return false;
+}
+
+// Summed target displacement of all active wavefronts at a point:
+// a radial XY push (visible under the orthographic camera) plus a small
+// Z lift that feeds the depth-cue shading. The sin(pi*s) profile makes a
+// smooth 0..1..0 pulse centered on the wavefront, so displacement rises and
+// falls cleanly as the ring passes through a particle.
+export function rippleOffset(px, py, pz, ripples, out) {
+    let dx = 0, dy = 0, dz = 0;
+    for (let o = 0; o < ripples.length; o += 4) {
+        const amp = ripples[o + 3];
+        if (amp <= 0) continue;
+        const age = ripples[o + 2];
+        const profile = rippleProfile(amp);
+        const vx = px - ripples[o];
+        const vy = py - ripples[o + 1];
+        const dist = Math.sqrt(vx * vx + vy * vy);
+        if (dist < 0.0001) continue;
+        const ringR = age * profile.speed;
+        const s = 1 - Math.abs(dist - ringR) / profile.width;
+        if (s <= 0) continue;
+        const bump = Math.sin(Math.PI * s) * Math.exp(-profile.decay * age) * amp;
+        const radial = bump * RIPPLE_HEIGHT / dist;
+        dx += vx * radial;
+        dy += vy * radial;
+        dz += bump * RIPPLE_Z_LIFT;
+    }
+    out.x = dx; out.y = dy; out.z = dz;
+    return out;
+}

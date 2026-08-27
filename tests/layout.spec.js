@@ -107,7 +107,7 @@ test('desktop: dock is organized into Object, Animations, Sharing and Instructio
     await expect(page.locator('#dock .capture-btn')).toBeVisible();
     await expect(page.locator('#dock .share-btn')).toBeVisible();
 
-    // Instructions: Rotate / Zoom / Explode.
+    // Instructions: Rotate / Zoom / Explode (Splash lives in the first-visit hint).
     await expect(page.locator('#dock .dock-instructions')).toBeVisible();
     const instructions = await page.$$eval('#dock .dock-instructions dt', els => els.map(e => e.textContent.trim()));
     expect(instructions).toEqual(['Rotate', 'Zoom', 'Explode']);
