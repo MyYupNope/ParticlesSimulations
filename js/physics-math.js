@@ -510,20 +510,21 @@ export function evaluateTorusParticle(i, hx, hy, hz, cd, elapsed, cfg, out) {
 // ---------------------------------------------
 // Timeline (must match CONFIG.presets.MURMURATION, totalExplosionDuration, and audio):
 //   Phase 1 Take-off  0.0 -> 2.0s   launch ripple sweeping left to right
-//   Phase 2 Flight    2.0 -> 9.0s   Lissajous flock path + churn + predator dodges
+//   Phase 2 Flight    2.0 -> 9.0s   Lissajous flock path + whip jinks + churn +
+//                                   boil turbulence + darting scouts + snap turns,
+//                                   split/merge, and randomized predator dodges
 //   Phase 3 Settle    9.0 -> 12.0s  flock decelerates and spirals toward origin
-//   Phase 4 Landing  12.0 -> 14.0s  staggered glide home with soft touchdown
+//   Phase 4 Landing  12.0 -> 14.0s staggered glide home with soft touchdown
 // Flocking is emulated statelessly: a shared analytic flight plan plus a
 // divergence-free style churn field keyed on slot coordinates, so every frame
 // is a pure function of (i, home, elapsed, plan).
 //
-// The flight plan itself is randomized per blast: triggerExplosion writes
-// mSweep*/mFreq*/mPh*/mLaunchDir into state.pattern (reaching the worker via
-// the 'randomize' message and the CPU fallback via state.pattern), so every
-// murmuration flies a different sweep. Missing fields fall back to defaults.
-
-// Blob radius at the end of the flight window (breathing term frozen at t = 9s)
-const MURM_R_FLIGHT_END = 11.0 + 3.4 * Math.sin(0.85 * 9.0 + 0.7) + 1.7 * Math.sin(1.65 * 9.0);
+// The flight plan AND the event schedule are randomized per blast:
+// triggerExplosion writes mSweep*/mFreq*/mPh*/mLaunchDir plus mTurn*/mSplit*/
+// mDodge*/mBoil*/mChurnMult/mFlutterMult/mJink*/mBreathAmp into state.pattern
+// (reaching the worker via the 'randomize' message and the CPU fallback via
+// state.pattern), so every murmuration flies a different choreography.
+// Missing fields fall back to defaults that reproduce the pre-upgrade sweep.
 
 export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out) {
     const t1 = 2.0;      // Take-off
@@ -546,6 +547,32 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
     const phZ = (c.mPhZ != null) ? c.mPhZ : 1.2;
     const launchDir = (c.mLaunchDir != null) ? c.mLaunchDir : 1.0;
 
+    // -- Randomized event schedule & chaos levels (defaults reproduce the
+    //    pre-upgrade behavior: no snap turn, no split, no boil/jink, the two
+    //    original predator windows, unit multipliers) --
+    const turnT = (c.mTurnT != null) ? c.mTurnT : 99.0;
+    const turnDir = (c.mTurnDir != null) ? c.mTurnDir : 1.0;
+    const splitT = (c.mSplitT != null) ? c.mSplitT : 99.0;
+    const splitAng = (c.mSplitAng != null) ? c.mSplitAng : 0.0;
+    const d1T = (c.mDodge1T != null) ? c.mDodge1T : 3.9;
+    const d2T = (c.mDodge2T != null) ? c.mDodge2T : 7.1;
+    const d3T = (c.mDodge3T != null) ? c.mDodge3T : 99.0;
+    const dodgeRad = (c.mDodgeRad != null) ? c.mDodgeRad : 8.0;
+    const dodgeStr = (c.mDodgeStr != null) ? c.mDodgeStr : 1.0;
+    const boilAmp = (c.mBoilAmp != null) ? c.mBoilAmp : 0.0;
+    const boilFreq = (c.mBoilFreq != null) ? c.mBoilFreq : 14.0;
+    const churnMult = (c.mChurnMult != null) ? c.mChurnMult : 1.0;
+    const flutterMult = (c.mFlutterMult != null) ? c.mFlutterMult : 1.0;
+    const jinkAmp = (c.mJinkAmp != null) ? c.mJinkAmp : 0.0;
+    const jinkFreq = (c.mJinkFreq != null) ? c.mJinkFreq : 5.5;
+    const jinkPh = (c.mJinkPh != null) ? c.mJinkPh : 0.0;
+    const breathAmp = (c.mBreathAmp != null) ? c.mBreathAmp : 1.0;
+    const scoutAmp = (c.mScoutAmp != null) ? c.mScoutAmp : 0.0;
+
+    // Flight-end blob radius: breathing depth is randomized per blast, so the
+    // frozen t=9s value must scale with it to keep settle/landing seamless.
+    const rFlightEnd = 11.0 + breathAmp * (3.4 * Math.sin(0.85 * 9.0 + 0.7) + 1.7 * Math.sin(1.65 * 9.0));
+
     // Flight-end constants (analytic at u = 1) keep settle/landing seamless for
     // any randomized plan. Cy's second lobe term vanishes at u = 1 (sin(pi)=0).
     const endCx = swX * Math.sin(fX + phX);
@@ -567,6 +594,7 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
     const p2h = ((i * 61.19) % 100.0) / 100.0;
     const p3h = ((i * 83.11) % 100.0) / 100.0;
     const p4h = ((i * 53.17) % 100.0) / 100.0;
+    const p6h = ((i * 97.31) % 100.0) / 100.0;   // darting-scout selector
     const ph1 = p1h * 6.28318;
     const ph2 = p2h * 6.28318;
     const ph3 = p3h * 6.28318;
@@ -584,6 +612,16 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
 
     const te = elapsed * cd;
 
+    // Snap-turn pulse: sharp linear rise/fall window centered on turnT
+    const tRise = Math.max(0.0, Math.min(1.0, (elapsed - (turnT - 0.45)) / 0.45));
+    const tFall = Math.max(0.0, Math.min(1.0, (elapsed - turnT) / 0.45));
+    const turnPulse = tRise * (1.0 - tFall);
+
+    // Split-and-merge envelope: 1.2s full-separation plateau around splitT
+    const sRise = Math.max(0.0, Math.min(1.0, (elapsed - (splitT - 1.0)) / 0.4));
+    const sFall = Math.max(0.0, Math.min(1.0, (elapsed - (splitT + 0.6)) / 0.4));
+    const splitEnv = sRise * (1.0 - sFall);
+
     // -- Shared flock center path (continuous across flight/settle/landing) --
     // Also derives the analytic flock velocity, used to stream the blob along
     // its direction of travel like a real starling cloud.
@@ -593,16 +631,24 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
         Cx = swX * Math.sin(u * fX + phX);
         Cy = swY * Math.sin(u * fY + phY) + 3.0 * Math.sin(u * Math.PI);
         Cz = swZ * Math.sin(u * fZ + phZ);
+        // Whip jinks: higher-frequency lobes on the flight path. The sin(pi*u)
+        // envelope zeroes them exactly at take-off and flight-end so the
+        // settle/landing end-constants stay valid.
+        const jk = jinkAmp * Math.sin(Math.PI * u);
+        Cx += jk * Math.sin(u * jinkFreq + jinkPh);
+        Cy += jk * 0.6 * Math.sin(u * jinkFreq * 0.83 + jinkPh + 1.7);
+        Cz += jk * Math.cos(u * jinkFreq * 0.91 + jinkPh + 3.1);
         churn = 1.0;
         // Breathing flock volume: two superposed pulses swell and contract the
         // whole cloud organically through the flight window.
-        blobR = 11.0 + 3.4 * Math.sin(0.85 * elapsed + 0.7) + 1.7 * Math.sin(1.65 * elapsed);
+        blobR = 11.0 + breathAmp * (3.4 * Math.sin(0.85 * elapsed + 0.7) + 1.7 * Math.sin(1.65 * elapsed));
         const dvx = kvx * Math.cos(u * fX + phX);
         const dvy = kvy * Math.cos(u * fY + phY) + 1.346 * Math.cos(u * Math.PI);
         const dvz = kvz * Math.cos(u * fZ + phZ);
         const vlen = Math.sqrt(dvx * dvx + dvy * dvy + dvz * dvz) || 1.0;
         vX = dvx / vlen; vY = dvy / vlen; vZ = dvz / vlen;
         strA = 0.60 * Math.min(1.0, vlen / 10.0);
+        strA *= 1.0 + 0.55 * turnPulse;   // shear harder through snap turns
     } else if (elapsed < T123) {
         const s0 = (elapsed - T12) / t3;
         const s = s0 * s0 * (3.0 - 2.0 * s0);
@@ -610,7 +656,7 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
         Cy = endCy * (1.0 - 0.75 * s) + 1.5 * s;
         Cz = endCz * (1.0 - 0.75 * s);
         churn = 1.0 - 0.7 * s;
-        blobR = MURM_R_FLIGHT_END * (1.0 - 0.55 * s);   // flock condenses to land
+        blobR = rFlightEnd * (1.0 - 0.55 * s);   // flock condenses to land
         vX = evxN; vY = evyN; vZ = evzN;
         strA = ea * (1.0 - 0.75 * s);
     } else {
@@ -625,7 +671,7 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
         Cx = setCx + (hx0 - setCx) * sq;
         Cy = setCy + (hy0 - setCy) * sq;
         Cz = setCz + (hz0 - setCz) * sq;
-        blobR = MURM_R_FLIGHT_END * 0.45;
+        blobR = rFlightEnd * 0.45;
         vX = evxN; vY = evyN; vZ = evzN;
         strA = ea * 0.25 * (1.0 - Math.min(1.0, tau4 / t4));
     }
@@ -676,16 +722,22 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
     sz = pzp * 0.80 + vZ * (along * stretch - trail);
 
     // -- Churn field: coherent swirl keyed on slot position --
-    let Fx = 5.6 * Math.sin(0.40 * cy0 + 1.25 * te + ph1);
-    let Fy = 4.4 * Math.sin(0.48 * cx0 - 1.05 * te + ph2);
-    let Fz = 4.8 * Math.cos(0.36 * cx0 + 0.30 * cy0 + 0.90 * te + ph3);
+    let Fx = churnMult * 5.6 * Math.sin(0.40 * cy0 + 1.25 * te + ph1);
+    let Fy = churnMult * 4.4 * Math.sin(0.48 * cx0 - 1.05 * te + ph2);
+    let Fz = churnMult * 4.8 * Math.cos(0.36 * cx0 + 0.30 * cy0 + 0.90 * te + ph3);
 
     // Wingbeat flutter
     const wf = 8.5 + 4.0 * p4h;
     const fl = Math.sin(wf * te + ph1);
-    Fx += 0.5 * fl;
-    Fy += 1.3 * fl;
-    Fz += 0.4 * Math.sin(wf * 0.87 * te + ph2);
+    Fx += flutterMult * 0.5 * fl;
+    Fy += flutterMult * 1.3 * fl;
+    Fz += flutterMult * 0.4 * Math.sin(wf * 0.87 * te + ph2);
+
+    // Boil turbulence: incommensurate high-frequency layer keyed on the slot,
+    // giving individual birds chaotic interior jitter (the "living" look).
+    Fx += boilAmp * Math.sin(boilFreq * te + 1.9 * cy0 + ph2);
+    Fy += boilAmp * 0.8 * Math.sin(boilFreq * 0.87 * te - 1.6 * cx0 + ph3);
+    Fz += boilAmp * Math.cos(boilFreq * 0.71 * te + 1.3 * (cx0 + cy0) + ph1);
 
     Fx *= churn; Fy *= churn; Fz *= churn;
 
@@ -693,22 +745,61 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
     let Py = Cy + oy + sy + Fy;
     let Pz = Cz + oz + sz + Fz;
 
-    // -- Predator dodges: two sweeping exclusion cavities shape-shift the flock --
-    if (elapsed > 2.6 && elapsed < 8.6) {
-        // Window envelope: 0.4s smooth rise / fall around each sweep
-        let wA = Math.max(0.0, Math.min(1.0, (elapsed - 2.8) / 0.4));
-        wA *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - 5.0) / 0.4));
-        let wB = Math.max(0.0, Math.min(1.0, (elapsed - 6.0) / 0.4));
-        wB *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - 8.2) / 0.4));
-        const wEnv = Math.max(wA, wB);
+    // -- Snap-turn bank impulse: whip the whole flock sideways mid-flight --
+    if (turnPulse > 0.0) {
+        const bkX = vY, bkY = -vX;
+        const bkN = Math.sqrt(bkX * bkX + bkY * bkY + 2.5e-3);
+        const bankMag = turnDir * 8.0 * turnPulse;
+        Px += (bkX / bkN) * bankMag;
+        Py += (bkY / bkN) * bankMag;
+    }
+
+    // -- Split & merge: tear the six sub-swarms into two lobes along a random
+    //    horizontal axis, fly them apart, then pour them back together --
+    if (splitEnv > 0.0) {
+        const sideSign = (swId < 3.0) ? 1.0 : -1.0;
+        const sepMag = sideSign * 7.5 * splitEnv * swScale;
+        Px += Math.cos(splitAng) * sepMag;
+        Pz += Math.sin(splitAng) * sepMag;
+    }
+
+    // -- Darting scouts: rare individuals streak out of the blob and snap back --
+    if (p6h > 0.93 && churn > 0.01 && scoutAmp > 0.0) {
+        const dartRate = (1.55 + 1.3 * p1h) * Math.PI;
+        let dw = Math.sin(te * dartRate + p6h * 40.0 + ph2);
+        if (dw > 0.0) {
+            dw *= dw; dw *= dw; dw *= dw;   // sin^8: brief hard bursts
+            const slotLen = Math.sqrt(cx0 * cx0 + cy0 * cy0 + cz0 * cz0) || 1.0;
+            const dartMag = scoutAmp * (4.0 + 2.5 * p3h) * dw * churn;
+            Px += (cx0 / slotLen) * dartMag;
+            Py += (cy0 / slotLen) * dartMag;
+            Pz += (cz0 / slotLen) * dartMag;
+        }
+    }
+
+    // -- Predator dodges: up to three sweeping exclusion cavities shape-shift
+    //    the flock at per-blast randomized times with a random strike radius
+    //    and parting force --
+    if (elapsed > 2.0 && elapsed < 9.0) {
+        // Window envelope per attack: linear rise/fall ramps around its center
+        let wA = Math.max(0.0, Math.min(1.0, (elapsed - (d1T - 1.1)) / 0.4));
+        wA *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - (d1T + 1.1)) / 0.4));
+        let wB = Math.max(0.0, Math.min(1.0, (elapsed - (d2T - 1.1)) / 0.4));
+        wB *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - (d2T + 1.1)) / 0.4));
+        let wC = Math.max(0.0, Math.min(1.0, (elapsed - (d3T - 1.1)) / 0.4));
+        wC *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - (d3T + 1.1)) / 0.4));
+        const wEnv = Math.max(wA, Math.max(wB, wC));
+        const dodgeIdx = (wC >= wA && wC >= wB) ? 2.0 : ((wB >= wA) ? 1.0 : 0.0);
         if (wEnv > 0.001) {
             // The predator rides the flock's own flight path with a lateral
-            // weave, so the dodge is guaranteed to cut through the blob.
+            // weave (phase-offset per attack), so the dodge is guaranteed to
+            // cut through the blob.
             const qt = Math.min(8.9, elapsed * 0.92 + 1.1);
             const qU = Math.max(0.0, (qt - 2.0) / 7.0);
-            const qx = swX * Math.sin(qU * fX + phX) + 5.0 * Math.sin(1.7 * elapsed + 1.0);
-            const qy = swY * Math.sin(qU * fY + phY) + 3.0 * Math.sin(qU * Math.PI) + 2.0 * Math.sin(1.3 * elapsed);
-            const qz = swZ * Math.sin(qU * fZ + phZ) + 4.0 * Math.sin(1.6 * elapsed + 2.0);
+            const wo = dodgeIdx * 2.094;
+            const qx = swX * Math.sin(qU * fX + phX) + 5.0 * Math.sin(1.7 * elapsed + 1.0 + wo);
+            const qy = swY * Math.sin(qU * fY + phY) + 3.0 * Math.sin(qU * Math.PI) + 2.0 * Math.sin(1.3 * elapsed + wo);
+            const qz = swZ * Math.sin(qU * fZ + phZ) + 4.0 * Math.sin(1.6 * elapsed + 2.0 + wo);
             const dx = Px - qx, dy = Py - qy;
             const d = Math.sqrt(dx * dx + dy * dy + (Pz - qz) * (Pz - qz));
             // Part the flock around the predator: slide particles sideways
@@ -717,7 +808,7 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
             // ring; tangential parting preserves radial density and reads as
             // the flock cleaving around a falcon. Magnitude fades to zero at
             // the cavity rim and on the parting mid-plane, so nothing snaps.
-            const rad = 8.0;
+            const rad = dodgeRad;
             if (d < rad) {
                 const x = d / rad;
                 let rise = x / 0.5; rise = Math.min(1.0, rise); rise = rise * rise * (3.0 - 2.0 * rise);
@@ -729,7 +820,7 @@ export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out
                 const pn = Math.sqrt(pvx * pvx + pvy * pvy + 0.0025);
                 pvx /= pn; pvy /= pn;
                 const sideDist = dx * pvx + dy * pvy;
-                const part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * wEnv * (0.75 + 0.5 * p4h);
+                const part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * dodgeStr * wEnv * (0.75 + 0.5 * p4h);
                 Px += pvx * part;
                 Py += pvy * part;
             }

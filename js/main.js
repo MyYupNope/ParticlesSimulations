@@ -250,13 +250,13 @@ const CONFIG = {
             soundType: 'sine'
         },
         MURMURATION: {
-            description: 'Your message takes flight — a living starling flock sweeps the sky, dodges, and returns.',
+            description: 'Your message takes flight — whip turns, split-and-merge waves, falcon strikes and startle sparks, then it settles home.',
             expansionDuration: 2.0,
             contractionDuration: 2.0,
             explosionMaxDistMultiplier: 30.0,
-            motionStyle: 5, // 4-phase ~14s flock: Take-off (0-2) -> Flight + predator dodges (2-9) -> Settle (9-12) -> Landing (12-14)
-            trailStrength: 0.35,
-            emberBudget: 0,
+            motionStyle: 5, // 4-phase ~14s flock: Take-off (0-2) -> Flight: jinks/snap-turn/split/dodges/boil/scouts (2-9) -> Settle (9-12) -> Landing (12-14)
+            trailStrength: 0.70,
+            emberBudget: 60,
             soundPitch: 70,
             soundDuration: 14.0,
             soundType: 'sine'
@@ -374,6 +374,24 @@ uniform float uMPhX;
 uniform float uMPhY;
 uniform float uMPhZ;
 uniform float uMLaunchDir;
+uniform float uMTurnT;
+uniform float uMTurnDir;
+uniform float uMSplitT;
+uniform float uMSplitAng;
+uniform float uMDodge1T;
+uniform float uMDodge2T;
+uniform float uMDodge3T;
+uniform float uMDodgeRad;
+uniform float uMDodgeStr;
+uniform float uMBoilAmp;
+uniform float uMBoilFreq;
+uniform float uMChurnMult;
+uniform float uMFlutterMult;
+uniform float uMJinkAmp;
+uniform float uMJinkFreq;
+uniform float uMJinkPh;
+uniform float uMBreathAmp;
+uniform float uMScoutAmp;
 // Torus knot auto-calibration (world units, from the camera frustum)
 uniform float uKnotScale;
 uniform vec3 uMouseWorld;
@@ -745,12 +763,18 @@ vec3 evalTorusGPU(float i, vec3 home, float cd, float elapsed) {
     return p;
 }
 
-// Style 5: starling flock — randomized flight plan, sub-swarms, streaming,
-// predator dodges. Mirrors evaluateMurmurationParticle in physics-math.js.
+// Style 5: starling flock — randomized flight plan + event schedule (snap turns,
+// split/merge, randomized predator dodges), sub-swarms, streaming, boil turbulence,
+// darting scouts. Mirrors evaluateMurmurationParticle in physics-math.js.
 vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
         float swX, float swY, float swZ,
         float fX, float fY, float fZ,
-        float phX, float phY, float phZ, float launchDir) {
+        float phX, float phY, float phZ, float launchDir,
+        float turnT, float turnDir, float splitT, float splitAng,
+        float d1T, float d2T, float d3T, float dodgeRad, float dodgeStr,
+        float boilAmp, float boilFreq, float churnMult, float flutterMult,
+        float jinkAmp, float jinkFreq, float jinkPh, float breathAmp,
+        float scoutAmp) {
     float t1 = 2.0;
     float t2 = 7.0;
     float t3 = 3.0;
@@ -763,6 +787,7 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
     float p3h = mod(i * 83.11, 100.0) / 100.0;
     float p4h = mod(i * 53.17, 100.0) / 100.0;
     float p5h = mod(i * 71.53, 100.0) / 100.0;
+    float p6h = mod(i * 97.31, 100.0) / 100.0;
     float ph1 = p1h * 6.28318;
     float ph2 = p2h * 6.28318;
     float ph3 = p3h * 6.28318;
@@ -793,7 +818,17 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
     float evlen = max(length(vec3(evx, evy, evz)), 1e-4);
     vec3 evN = vec3(evx, evy, evz) / evlen;
     float ea = 0.60 * min(1.0, evlen / 10.0);
-    float rFlightEnd = (11.0 + 3.4 * sin(0.85 * 9.0 + 0.7) + 1.7 * sin(1.65 * 9.0));
+    float rFlightEnd = (11.0 + breathAmp * (3.4 * sin(0.85 * 9.0 + 0.7) + 1.7 * sin(1.65 * 9.0)));
+
+    // Snap-turn pulse: sharp linear rise/fall window centered on turnT
+    float tRise = clamp((elapsed - (turnT - 0.45)) / 0.45, 0.0, 1.0);
+    float tFall = clamp((elapsed - turnT) / 0.45, 0.0, 1.0);
+    float turnPulse = tRise * (1.0 - tFall);
+
+    // Split-and-merge envelope: 1.2s full-separation plateau around splitT
+    float sRise = clamp((elapsed - (splitT - 1.0)) / 0.4, 0.0, 1.0);
+    float sFall = clamp((elapsed - (splitT + 0.6)) / 0.4, 0.0, 1.0);
+    float splitEnv = sRise * (1.0 - sFall);
 
     // Shared flock center path + analytic streaming direction
     vec3 C;
@@ -807,16 +842,25 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
             swX * sin(u * fX + phX),
             swY * sin(u * fY + phY) + 3.0 * sin(u * 3.14159265),
             swZ * sin(u * fZ + phZ));
+        // Whip jinks: higher-frequency lobes on the flight path. The sin(pi*u)
+        // envelope zeroes them exactly at take-off and flight-end so the
+        // settle/landing end-constants stay valid.
+        float jk = jinkAmp * sin(u * 3.14159265);
+        C += vec3(
+            jk * sin(u * jinkFreq + jinkPh),
+            jk * 0.6 * sin(u * jinkFreq * 0.83 + jinkPh + 1.7),
+            jk * cos(u * jinkFreq * 0.91 + jinkPh + 3.1));
         churn = 1.0;
         // Breathing flock volume: two superposed pulses swell and contract the
         // whole cloud organically through the flight window.
-        blobR = 11.0 + 3.4 * sin(0.85 * elapsed + 0.7) + 1.7 * sin(1.65 * elapsed);
+        blobR = 11.0 + breathAmp * (3.4 * sin(0.85 * elapsed + 0.7) + 1.7 * sin(1.65 * elapsed));
         vec3 dv = vec3(
             kvx * cos(u * fX + phX),
             kvy * cos(u * fY + phY) + 1.346 * cos(u * 3.14159265),
             kvz * cos(u * fZ + phZ));
         vDir = normalize(dv + vec3(1e-6));
         strA = 0.60 * min(1.0, length(dv) / 10.0);
+        strA *= 1.0 + 0.55 * turnPulse;   // shear harder through snap turns
     } else if (elapsed < T123) {
         float s0 = (elapsed - T12) / t3;
         float s = s0 * s0 * (3.0 - 2.0 * s0);
@@ -872,33 +916,76 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
     float trail = (back * 1.7 + shell * 2.6) * strA * (0.55 + 0.45 * p4h) * swScale;
     vec3 streamed = perp * 0.80 + vDir * (along * (1.0 + strA) - trail);
 
-    // Churn field keyed on slot position + wingbeat flutter
-    vec3 F = vec3(
+    // Churn field keyed on slot position + wingbeat flutter + boil turbulence
+    vec3 F = churnMult * vec3(
         5.6 * sin(0.40 * slot.y + 1.25 * te + ph1),
         4.4 * sin(0.48 * slot.x - 1.05 * te + ph2),
         4.8 * cos(0.36 * slot.x + 0.30 * slot.y + 0.90 * te + ph3));
     float wf = 8.5 + 4.0 * p4h;
     float fl = sin(wf * te + ph1);
-    F += vec3(0.5 * fl, 1.3 * fl, 0.4 * sin(wf * 0.87 * te + ph2));
+    F += flutterMult * vec3(0.5 * fl, 1.3 * fl, 0.4 * sin(wf * 0.87 * te + ph2));
+    // Boil turbulence: incommensurate high-frequency layer keyed on the slot,
+    // giving individual birds chaotic interior jitter (the "living" look).
+    F += boilAmp * vec3(
+        sin(boilFreq * te + 1.9 * slot.y + ph2),
+        0.8 * sin(boilFreq * 0.87 * te - 1.6 * slot.x + ph3),
+        cos(boilFreq * 0.71 * te + 1.3 * (slot.x + slot.y) + ph1));
     F *= churn;
 
     vec3 P = C + swarmO + streamed + F;
 
-    // Predator dodges: two sweeping exclusion cavities shape-shift the flock
-    if (elapsed > 2.6 && elapsed < 8.6) {
-        float wA = clamp((elapsed - 2.8) / 0.4, 0.0, 1.0);
-        wA *= 1.0 - clamp((elapsed - 5.0) / 0.4, 0.0, 1.0);
-        float wB = clamp((elapsed - 6.0) / 0.4, 0.0, 1.0);
-        wB *= 1.0 - clamp((elapsed - 8.2) / 0.4, 0.0, 1.0);
-        float wEnv = max(wA, wB);
+    // Snap-turn bank impulse: whip the whole flock sideways mid-flight
+    if (turnPulse > 0.0) {
+        vec2 bk = vec2(vDir.y, -vDir.x);
+        float bkN = sqrt(dot(bk, bk) + 2.5e-3);
+        float bankMag = turnDir * 8.0 * turnPulse;
+        P.xy += (bk / bkN) * bankMag;
+    }
+
+    // Split & merge: tear the six sub-swarms into two lobes along a random
+    // horizontal axis, fly them apart, then pour them back together
+    if (splitEnv > 0.0) {
+        float sideSign = (swId < 3.0) ? 1.0 : -1.0;
+        float sepMag = sideSign * 7.5 * splitEnv * swScale;
+        P.x += cos(splitAng) * sepMag;
+        P.z += sin(splitAng) * sepMag;
+    }
+
+    // Darting scouts: rare individuals streak out of the blob and snap back
+    if (p6h > 0.93 && churn > 0.01 && scoutAmp > 0.0) {
+        float dartRate = (1.55 + 1.3 * p1h) * 3.14159265;
+        float dw = sin(te * dartRate + p6h * 40.0 + ph2);
+        if (dw > 0.0) {
+            dw *= dw; dw *= dw; dw *= dw;
+            float slotLen = max(length(slot), 1e-4);
+            float dartMag = scoutAmp * (4.0 + 2.5 * p3h) * dw * churn;
+            P += (slot / slotLen) * dartMag;
+        }
+    }
+
+    // Predator dodges: up to three sweeping exclusion cavities shape-shift
+    // the flock at per-blast randomized times with a random strike radius
+    // and parting force
+    if (elapsed > 2.0 && elapsed < 9.0) {
+        float wA = clamp((elapsed - (d1T - 1.1)) / 0.4, 0.0, 1.0);
+        wA *= 1.0 - clamp((elapsed - (d1T + 1.1)) / 0.4, 0.0, 1.0);
+        float wB = clamp((elapsed - (d2T - 1.1)) / 0.4, 0.0, 1.0);
+        wB *= 1.0 - clamp((elapsed - (d2T + 1.1)) / 0.4, 0.0, 1.0);
+        float wC = clamp((elapsed - (d3T - 1.1)) / 0.4, 0.0, 1.0);
+        wC *= 1.0 - clamp((elapsed - (d3T + 1.1)) / 0.4, 0.0, 1.0);
+        float wEnv = max(wA, max(wB, wC));
+        float dodgeIdx = (wC >= wA && wC >= wB) ? 2.0 : ((wB >= wA) ? 1.0 : 0.0);
         if (wEnv > 0.001) {
-            // The predator rides the flock's own flight path with a lateral weave
+            // The predator rides the flock's own flight path with a lateral
+            // weave (phase-offset per attack), so the dodge is guaranteed to
+            // cut through the blob.
             float qt = min(8.9, elapsed * 0.92 + 1.1);
             float qU = max(0.0, (qt - 2.0) / 7.0);
+            float wo = dodgeIdx * 2.094;
             vec3 Q = vec3(
-                swX * sin(qU * fX + phX) + 5.0 * sin(1.7 * elapsed + 1.0),
-                swY * sin(qU * fY + phY) + 3.0 * sin(qU * 3.14159265) + 2.0 * sin(1.3 * elapsed),
-                swZ * sin(qU * fZ + phZ) + 4.0 * sin(1.6 * elapsed + 2.0));
+                swX * sin(qU * fX + phX) + 5.0 * sin(1.7 * elapsed + 1.0 + wo),
+                swY * sin(qU * fY + phY) + 3.0 * sin(qU * 3.14159265) + 2.0 * sin(1.3 * elapsed + wo),
+                swZ * sin(qU * fZ + phZ) + 4.0 * sin(1.6 * elapsed + 2.0 + wo));
             // Part the flock around the predator: slide particles sideways
             // relative to the flow direction instead of pushing them radially.
             // A radial push compresses displaced particles into a visible rim
@@ -907,7 +994,7 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
             // the cavity rim and on the parting mid-plane, so nothing snaps.
             vec3 dvv = P - Q;
             float d = length(dvv);
-            float rad = 8.0;
+            float rad = dodgeRad;
             if (d < rad) {
                 float x = d / rad;
                 float rise = min(1.0, x / 0.5); rise = rise * rise * (3.0 - 2.0 * rise);
@@ -918,7 +1005,7 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
                 vec2 pv = vec2(vDir.y, -vDir.x);
                 pv /= sqrt(dot(pv, pv) + 2.5e-3);
                 float sideDist = dot(dvv.xy, pv);
-                float part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * wEnv * (0.75 + 0.5 * p4h);
+                float part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * dodgeStr * wEnv * (0.75 + 0.5 * p4h);
                 P += vec3(pv * part, 0.0);
             }
         }
@@ -953,7 +1040,11 @@ void main() {
             } else if (uMotionStyle == 5) {
                 livePos = evalMurmurationGPU(aIndex, homePosition, aCustomDir, uExplosionElapsed,
                     uMSweepX, uMSweepY, uMSweepZ, uMFreqX, uMFreqY, uMFreqZ,
-                    uMPhX, uMPhY, uMPhZ, uMLaunchDir);
+                    uMPhX, uMPhY, uMPhZ, uMLaunchDir,
+                    uMTurnT, uMTurnDir, uMSplitT, uMSplitAng,
+                    uMDodge1T, uMDodge2T, uMDodge3T, uMDodgeRad, uMDodgeStr,
+                    uMBoilAmp, uMBoilFreq, uMChurnMult, uMFlutterMult,
+                    uMJinkAmp, uMJinkFreq, uMJinkPh, uMBreathAmp, uMScoutAmp);
             } else {
                 livePos = evalExplosionGPU(homePosition, aRandomDir, aRandomSpeed, uMaxDist, uExpDuration, uDriftDuration, uContractionDuration, uExplosionElapsed);
             }
@@ -1098,6 +1189,7 @@ const state = {
     actualTravelRadius: 0,   // measured max distance particles actually travelled
     travelApplied: false,    // true once contraction duration is derived from actual travel
     embersSpawned: false,    // true once embers are spawned at peak expansion
+    dodgeEmbersFired: false, // true once the murmuration predator-strike sparks fired
     afterglowStartTime: null,
     soundPitch: CONFIG.presets.DEFAULT.soundPitch,
     soundDuration: CONFIG.presets.DEFAULT.soundDuration,
@@ -1316,6 +1408,24 @@ const uniforms = {
     uMPhY: { value: 0.0 },
     uMPhZ: { value: 1.2 },
     uMLaunchDir: { value: 1.0 },
+    uMTurnT: { value: 99.0 },
+    uMTurnDir: { value: 1.0 },
+    uMSplitT: { value: 99.0 },
+    uMSplitAng: { value: 0.0 },
+    uMDodge1T: { value: 3.9 },
+    uMDodge2T: { value: 7.1 },
+    uMDodge3T: { value: 99.0 },
+    uMDodgeRad: { value: 8.0 },
+    uMDodgeStr: { value: 1.0 },
+    uMBoilAmp: { value: 0.0 },
+    uMBoilFreq: { value: 14.0 },
+    uMChurnMult: { value: 1.0 },
+    uMFlutterMult: { value: 1.0 },
+    uMJinkAmp: { value: 0.0 },
+    uMJinkFreq: { value: 5.5 },
+    uMJinkPh: { value: 0.0 },
+    uMBreathAmp: { value: 1.0 },
+    uMScoutAmp: { value: 0.0 },
     uKnotScale: { value: 11.0 },
     uMouseWorld: { value: new Vector3(-1000, -1000, 0) },
     uMousePushDistance: { value: CONFIG.repulsionStrength },
@@ -2386,6 +2496,60 @@ function spawnEmbers() {
     }
 }
 
+// Murmuration predator ride-along position (attack #0 weave) — mirrors the
+// evaluator's formula so the burst lands exactly where the falcon is drawn.
+function murmurPredatorStrikePos(plan, elapsed) {
+    const g = plan || {};
+    const swX = (g.mSweepX != null) ? g.mSweepX : 24.0;
+    const swY = (g.mSweepY != null) ? g.mSweepY : 4.0;
+    const swZ = (g.mSweepZ != null) ? g.mSweepZ : 12.0;
+    const fX = (g.mFreqX != null) ? g.mFreqX : 3.456;
+    const fY = (g.mFreqY != null) ? g.mFreqY : 5.341;
+    const fZ = (g.mFreqZ != null) ? g.mFreqZ : 2.827;
+    const phX = (g.mPhX != null) ? g.mPhX : 0.4;
+    const phY = (g.mPhY != null) ? g.mPhY : 0.0;
+    const phZ = (g.mPhZ != null) ? g.mPhZ : 1.2;
+    const qt = Math.min(8.9, elapsed * 0.92 + 1.1);
+    const qU = Math.max(0.0, (qt - 2.0) / 7.0);
+    return {
+        x: swX * Math.sin(qU * fX + phX) + 5.0 * Math.sin(1.7 * elapsed + 1.0),
+        y: swY * Math.sin(qU * fY + phY) + 3.0 * Math.sin(qU * Math.PI) + 2.0 * Math.sin(1.3 * elapsed),
+        z: swZ * Math.sin(qU * fZ + phZ) + 4.0 * Math.sin(1.6 * elapsed + 2.0)
+    };
+}
+
+// Murmuration startle sparks: the flock's panicked reflex burst when the
+// predator first strikes. Embers originate at the predator's position and
+// blast outward independently of the live particle buffer, so the burst is
+// identical on the GPU-shader, worker, and CPU physics paths.
+function spawnStartleSparks(elapsed) {
+    if (!render.emberData || !render.emberPoints) return;
+    if (isMotionReduced) return;
+
+    // Scale the spark budget per preset.
+    const preset = (state.activePreset && CONFIG.presets[state.activePreset]) || null;
+    const budget = preset ? (preset.emberBudget || 60) : 60;
+    const E = Math.min(render.emberCount, budget);
+    const q = murmurPredatorStrikePos(state.pattern, elapsed);
+
+    for (let i = 0; i < E; i++) {
+        const i3 = i * 3;
+        render.emberData[i3]     = q.x + (Math.random() - 0.5) * 1.6;
+        render.emberData[i3 + 1] = q.y + (Math.random() - 0.5) * 1.6;
+        render.emberData[i3 + 2] = q.z + (Math.random() - 0.5) * 1.6;
+
+        let vx = Math.random() * 2 - 1, vy = Math.random() * 2 - 1, vz = Math.random() * 2 - 1;
+        const vl = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
+        const push = 5 + Math.random() * 8;
+        render.emberVel[i3]     = (vx / vl) * push;
+        render.emberVel[i3 + 1] = (vy / vl) * push + 3;   // slight startle uplift
+        render.emberVel[i3 + 2] = (vz / vl) * push;
+        render.emberLife[i] = 0.35 + Math.random() * 0.45;
+    }
+    render.emberPosAttr.needsUpdate = true;
+    render.emberLifeAttr.needsUpdate = true;
+}
+
 function updateEmbers(dt) {
     if (!render.emberData) return;
     if (isMotionReduced && render.emberPoints) { render.emberPoints.visible = false; return; }
@@ -2688,13 +2852,40 @@ function triggerExplosion(force = false) {
     state.actualTravelRadius = 0;
     state.travelApplied = false;
     state.embersSpawned = false;
+    state.dodgeEmbersFired = false;
     state.afterglowStartTime = null;
     fallbackMaxTravelSq = 0;
 
-    // Procedural randomized murmuration flight plan (style 5): every blast flies
-    // a different sweep. The fields ride state.pattern to the shader uniforms,
-    // to the worker via the 'randomize' message, and to the CPU fallback.
+    // Procedural randomized murmuration flight plan + event schedule (style 5):
+    // every blast flies a different choreography — sweep, whip jinks, a snap
+    // turn, an optional split-and-merge, 2-3 predator strikes, and per-blast
+    // chaos levels. The fields ride state.pattern to the shader uniforms, to
+    // the worker via the 'randomize' message, and to the CPU fallback.
     if (state.motionStyle === 5) {
+        // Event placement avoids pathological stacking: the snap turn never
+        // lands inside the split's +/-1.4s neighborhood, and predator strike
+        // centers keep >=1.35s gaps so their parting cavities don't pile up.
+        const mSplitT = Math.random() < 0.55 ? (4.3 + Math.random() * 2.0) : 99.0;
+        let mTurnT = mSplitT < 90.0 ? 99.0 : (3.3 + Math.random() * 2.6);
+        if (mSplitT < 90.0) {
+            // Split active: try to place the turn outside its neighborhood.
+            const avoidLo = mSplitT - 1.4, avoidHi = mSplitT + 1.4;
+            let tt = 3.3 + Math.random() * 2.6;   // [3.3, 5.9]
+            if (tt > avoidLo && tt < avoidHi) {
+                tt = tt < mSplitT
+                    ? Math.max(3.3, avoidLo - 0.8 * Math.random())
+                    : Math.min(5.9, avoidHi + 0.8 * Math.random());
+                if (tt > avoidLo && tt < avoidHi) tt = 99.0;   // drop rather than stack
+            }
+            mTurnT = tt;
+        }
+        const d1 = 3.25 + Math.random() * 0.55;
+        const d2 = d1 + 1.35 + Math.random() * 0.7;
+        let d3 = 99.0;
+        if (Math.random() < 0.45) {
+            const cand = d2 + 1.35 + Math.random() * 0.5;
+            d3 = cand <= 6.95 ? cand : 99.0;
+        }
         state.pattern = {
             ...state.pattern,
             mSweepX: 16.0 + Math.random() * 14.0,
@@ -2706,7 +2897,30 @@ function triggerExplosion(force = false) {
             mPhX: Math.random() * 6.283,
             mPhY: Math.random() * 6.283,
             mPhZ: Math.random() * 6.283,
-            mLaunchDir: Math.random() < 0.5 ? 1.0 : -1.0
+            mLaunchDir: Math.random() < 0.5 ? 1.0 : -1.0,
+            // Snap turn: sharp lateral whiplash of the whole flock (99.0 = off)
+            mTurnT,
+            mTurnDir: Math.random() < 0.5 ? 1.0 : -1.0,
+            // Split & merge: 55% of blasts tear into two lobes mid-flight
+            mSplitT,
+            mSplitAng: Math.random() * 6.283,
+            // Predator strikes: two guaranteed attacks plus a 45% third one
+            mDodge1T: d1,
+            mDodge2T: d2,
+            mDodge3T: d3,
+            mDodgeRad: 6.5 + Math.random() * 3.0,
+            mDodgeStr: 0.85 + Math.random() * 0.6,
+            // Interior chaos levels
+            mBoilAmp: 1.4 + Math.random() * 0.8,
+            mBoilFreq: 11.0 + Math.random() * 3.0,
+            mChurnMult: 1.2 + Math.random() * 0.6,
+            mFlutterMult: 1.25 + Math.random() * 0.6,
+            mJinkAmp: 2.5 + Math.random() * 1.7,
+            mJinkFreq: 4.5 + Math.random() * 2.5,
+            mJinkPh: Math.random() * 6.283,
+            mBreathAmp: 1.25 + Math.random() * 0.65,
+            // Darting-scout burst strength (0 disables scouts entirely)
+            mScoutAmp: 0.85 + Math.random() * 0.45
         };
     }
 
@@ -3983,9 +4197,17 @@ function animate() {
                 }
             }
             // Spawn embers once, at peak, from the expanded particle field.
+            // Style 5 skips this (its sparks fire at the predator strike instead).
             if (elapsed >= activeExpDuration && !state.embersSpawned) {
                 state.embersSpawned = true;
-                spawnEmbers();
+                if (activeStyle !== 5) spawnEmbers();
+            }
+            // Murmuration startle sparks: panicked burst at the moment the
+            // first predator hits, wherever physics ran — GPU, worker, or CPU.
+            const murmurStrikeT = (state.pattern && state.pattern.mDodge1T != null) ? state.pattern.mDodge1T : 3.9;
+            if (activeStyle === 5 && !state.dodgeEmbersFired && elapsed >= murmurStrikeT) {
+                state.dodgeEmbersFired = true;
+                spawnStartleSparks(elapsed);
             }
             const contrDur = state.activeContractionDuration || state.contractionDuration;
             if (elapsed < activeExpDuration) {
@@ -4061,6 +4283,24 @@ function animate() {
         uniforms.uMPhY.value = (state.pattern && state.pattern.mPhY != null) ? state.pattern.mPhY : 0.0;
         uniforms.uMPhZ.value = (state.pattern && state.pattern.mPhZ != null) ? state.pattern.mPhZ : 1.2;
         uniforms.uMLaunchDir.value = (state.pattern && state.pattern.mLaunchDir != null) ? state.pattern.mLaunchDir : 1.0;
+        uniforms.uMTurnT.value = (state.pattern && state.pattern.mTurnT != null) ? state.pattern.mTurnT : 99.0;
+        uniforms.uMTurnDir.value = (state.pattern && state.pattern.mTurnDir != null) ? state.pattern.mTurnDir : 1.0;
+        uniforms.uMSplitT.value = (state.pattern && state.pattern.mSplitT != null) ? state.pattern.mSplitT : 99.0;
+        uniforms.uMSplitAng.value = (state.pattern && state.pattern.mSplitAng != null) ? state.pattern.mSplitAng : 0.0;
+        uniforms.uMDodge1T.value = (state.pattern && state.pattern.mDodge1T != null) ? state.pattern.mDodge1T : 3.9;
+        uniforms.uMDodge2T.value = (state.pattern && state.pattern.mDodge2T != null) ? state.pattern.mDodge2T : 7.1;
+        uniforms.uMDodge3T.value = (state.pattern && state.pattern.mDodge3T != null) ? state.pattern.mDodge3T : 99.0;
+        uniforms.uMDodgeRad.value = (state.pattern && state.pattern.mDodgeRad != null) ? state.pattern.mDodgeRad : 8.0;
+        uniforms.uMDodgeStr.value = (state.pattern && state.pattern.mDodgeStr != null) ? state.pattern.mDodgeStr : 1.0;
+        uniforms.uMBoilAmp.value = (state.pattern && state.pattern.mBoilAmp != null) ? state.pattern.mBoilAmp : 0.0;
+        uniforms.uMBoilFreq.value = (state.pattern && state.pattern.mBoilFreq != null) ? state.pattern.mBoilFreq : 14.0;
+        uniforms.uMChurnMult.value = (state.pattern && state.pattern.mChurnMult != null) ? state.pattern.mChurnMult : 1.0;
+        uniforms.uMFlutterMult.value = (state.pattern && state.pattern.mFlutterMult != null) ? state.pattern.mFlutterMult : 1.0;
+        uniforms.uMJinkAmp.value = (state.pattern && state.pattern.mJinkAmp != null) ? state.pattern.mJinkAmp : 0.0;
+        uniforms.uMJinkFreq.value = (state.pattern && state.pattern.mJinkFreq != null) ? state.pattern.mJinkFreq : 5.5;
+        uniforms.uMJinkPh.value = (state.pattern && state.pattern.mJinkPh != null) ? state.pattern.mJinkPh : 0.0;
+        uniforms.uMBreathAmp.value = (state.pattern && state.pattern.mBreathAmp != null) ? state.pattern.mBreathAmp : 1.0;
+        uniforms.uMScoutAmp.value = (state.pattern && state.pattern.mScoutAmp != null) ? state.pattern.mScoutAmp : 0.0;
         // Torus knot auto-calibration: scale the trefoil from the live
         // camera frustum so it stays centered and covers over half the stage.
         {
