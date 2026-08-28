@@ -42,7 +42,7 @@ export function playExplosionSound(stateParam, estimatedRecovery) {
     const now = ctx.currentTime;
     const master = ctx.createGain();
     master.gain.setValueAtTime(0.0001, now);
-    master.gain.linearRampToValueAtTime(0.40, now + 0.02);
+    master.gain.linearRampToValueAtTime(0.60, now + 0.02);
     master.connect(ctx.destination);
 
     const dur = s.soundDuration || estimatedRecovery || 1.5;
@@ -89,39 +89,94 @@ export function playExplosionSound(stateParam, estimatedRecovery) {
     }
 
     if (motionStyle === 2) {
-        // 4-Phase atmospheric breeze audio: Floor Thud -> 2s Rest -> Wind Gust Lift -> Reverse Wind Settle -> Elevation Shimmer
-        const totalBreezeDur = 11.8;
+        // -- 4-Phase Aero-Elastic Foliage & Wind Storm Synthesizer (~12.0s) --
+        // Phase 1: Whispering Foliage Sway (0-2.5s) -> Phase 2: Wind Surge Rush (2.5-7.0s) -> Phase 3: Calming Tailwind (7.0-9.8s) -> Phase 4: Crystal Landing (9.8-12.0s)
+        const totalBreezeDur = 12.0;
+        const pat = (s && s.pattern) || {};
+        const blowDir = (pat.blowDir != null) ? pat.blowDir : 1.0;
+
+        // Stereo Panner (tracking the gust's cross-stage travel)
+        const panner = (typeof ctx.createStereoPanner === 'function') ? ctx.createStereoPanner() : null;
+        if (panner) {
+            const pSign = (blowDir > 0) ? 1.0 : -1.0;
+            panner.pan.setValueAtTime(-0.40 * pSign, now);
+            panner.pan.linearRampToValueAtTime(0.65 * pSign, now + 6.0);
+            panner.pan.linearRampToValueAtTime(0.0, now + 10.5);
+            panner.connect(master);
+        }
+        const audioOut = panner || master;
+
+        // 1. Aerodynamic Wind Noise Body
         const wind = ctx.createBufferSource();
         wind.buffer = createNoiseBuffer(ctx);
         wind.loop = true;
+
         const windFilt = ctx.createBiquadFilter();
         windFilt.type = 'bandpass';
-        windFilt.frequency.setValueAtTime(90, now);
-        windFilt.frequency.linearRampToValueAtTime(130, now + 1.0);      // Phase 1: Floor impact & recoil
-        windFilt.frequency.linearRampToValueAtTime(75, now + 3.0);       // Ground Pause: Quiet floor rest
-        windFilt.frequency.exponentialRampToValueAtTime(620, now + 6.6); // Phase 2: Peak forward wind lift
-        windFilt.frequency.exponentialRampToValueAtTime(100, now + 10.2);// Phase 3: Reverse wind subsiding to floor
-        windFilt.frequency.exponentialRampToValueAtTime(50, now + totalBreezeDur);
-        windFilt.Q.value = 1.2;
+        windFilt.frequency.setValueAtTime(160, now);
+        windFilt.frequency.linearRampToValueAtTime(260, now + 2.5);       // Phase 1: Subtle leafy draft
+        windFilt.frequency.exponentialRampToValueAtTime(740, now + 5.5); // Phase 2: Peak wind surge roar
+        windFilt.frequency.linearRampToValueAtTime(320, now + 9.8);       // Phase 3: Calming tailwind
+        windFilt.frequency.exponentialRampToValueAtTime(60, now + totalBreezeDur);
+        windFilt.Q.value = 1.3;
 
         const windGain = ctx.createGain();
         windGain.gain.setValueAtTime(0.0001, now);
-        windGain.gain.exponentialRampToValueAtTime(0.14, now + 1.0);
-        windGain.gain.exponentialRampToValueAtTime(0.01, now + 3.0);     // Quiet ground pause
-        windGain.gain.linearRampToValueAtTime(0.32, now + 6.6);          // Wind surge at peak
-        windGain.gain.linearRampToValueAtTime(0.05, now + 10.2);         // Reverse landing
+        windGain.gain.exponentialRampToValueAtTime(0.12, now + 1.2);      // Soft entrance
+        windGain.gain.linearRampToValueAtTime(0.15, now + 2.5);           // Sway buildup
+        windGain.gain.linearRampToValueAtTime(0.38, now + 5.5);           // Surge peak
+        windGain.gain.linearRampToValueAtTime(0.10, now + 9.8);           // Tailwind calm
         windGain.gain.exponentialRampToValueAtTime(0.0001, now + totalBreezeDur);
+
+        // 2. Leaf Flutter Amplitude Modulation LFO (Phase 1 & 2)
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.setValueAtTime(8.5, now);
+        lfo.frequency.linearRampToValueAtTime(14.0, now + 5.5);
+        lfo.frequency.linearRampToValueAtTime(4.0, now + totalBreezeDur);
+
+        const lfoDepth = ctx.createGain();
+        lfoDepth.gain.setValueAtTime(0.04, now);
+        lfoDepth.gain.linearRampToValueAtTime(0.10, now + 5.5);
+        lfoDepth.gain.linearRampToValueAtTime(0.0, now + 9.8);
+
+        lfo.connect(lfoDepth);
+        lfoDepth.connect(windGain.gain);
 
         wind.connect(windFilt);
         windFilt.connect(windGain);
-        windGain.connect(master);
+        windGain.connect(audioOut);
         wind.start(now);
         wind.stop(now + totalBreezeDur + 0.1);
+        lfo.start(now);
+        lfo.stop(now + totalBreezeDur + 0.1);
+
+        // 3. Resting Crystal Chime (Phase 4: 9.8s -> 12.0s)
+        const chime = ctx.createOscillator();
+        chime.type = 'sine';
+        chime.frequency.setValueAtTime(587.33, now + 9.8); // D5
+        chime.frequency.exponentialRampToValueAtTime(440.0, now + totalBreezeDur); // A4
+
+        const chimeGain = ctx.createGain();
+        chimeGain.gain.setValueAtTime(0.0001, now + 9.8);
+        chimeGain.gain.exponentialRampToValueAtTime(0.06, now + 10.3);
+        chimeGain.gain.exponentialRampToValueAtTime(0.0001, now + totalBreezeDur);
+
+        chime.connect(chimeGain);
+        chimeGain.connect(audioOut);
+        chime.start(now + 9.8);
+        chime.stop(now + totalBreezeDur + 0.1);
+
         setTimeout(() => {
             try {
                 wind.disconnect();
                 windFilt.disconnect();
                 windGain.disconnect();
+                lfo.disconnect();
+                lfoDepth.disconnect();
+                chime.disconnect();
+                chimeGain.disconnect();
+                if (panner) panner.disconnect();
                 master.disconnect();
             } catch (_) {}
         }, (totalBreezeDur + 0.2) * 1000);
@@ -262,135 +317,129 @@ export function playExplosionSound(stateParam, estimatedRecovery) {
     }
 
     if (motionStyle === 4) {
-        // -- Torus Knot Synthesizer (~16s) --
-        // Suck-in Riser -> Knot Lock Thump -> Flowing Energy Hum -> Release Shimmer
+        // -- Magnetic Tokamak Fusion Reactor & Solar Plasma Donut Synthesizer (~16s) --
+        // Magnetic Pinch & Ignition -> Helical Plasma Containment Surge -> Magnetic Quench & Cold Fusion Crystallization
         const totalSingDur = 16.0;
 
-        // 1. Gravitational sub-bass drone (the black hole's mass)
-        const drone = ctx.createOscillator();
-        drone.type = 'sine';
-        drone.frequency.setValueAtTime(28, now);
-        drone.frequency.linearRampToValueAtTime(52, now + 3.0);      // Infall deepens the tone
-        drone.frequency.setValueAtTime(52, now + 11.5);
-        drone.frequency.exponentialRampToValueAtTime(24, now + totalSingDur);
+        // 1. Magnetic Containment Sub-Bass Hum (Tokamak Toroidal Field)
+        const subHum = ctx.createOscillator();
+        subHum.type = 'sine';
+        subHum.frequency.setValueAtTime(55, now);
+        subHum.frequency.exponentialRampToValueAtTime(36, now + 1.2);   // Magnetic pinch drop
+        subHum.frequency.exponentialRampToValueAtTime(68, now + 2.8);   // Core ignition surge
+        subHum.frequency.linearRampToValueAtTime(62, now + 10.5);       // Stable helical containment
+        subHum.frequency.exponentialRampToValueAtTime(28, now + totalSingDur);
 
-        const droneGain = ctx.createGain();
-        droneGain.gain.setValueAtTime(0.0001, now);
-        droneGain.gain.exponentialRampToValueAtTime(0.30, now + 2.6); // Peak as the knot locks
-        droneGain.gain.linearRampToValueAtTime(0.22, now + 11.5);
-        droneGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSingDur);
+        const subGain = ctx.createGain();
+        subGain.gain.setValueAtTime(0.0001, now);
+        subGain.gain.exponentialRampToValueAtTime(0.32, now + 2.8);     // Ignition peak
+        subGain.gain.linearRampToValueAtTime(0.24, now + 10.5);
+        subGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSingDur);
 
-        drone.connect(droneGain);
-        droneGain.connect(master);
-        drone.start(now);
-        drone.stop(now + totalSingDur + 0.1);
+        // Poloidal coil AM modulation (3.2Hz helical frequency)
+        const coilLfo = ctx.createOscillator();
+        coilLfo.type = 'sine';
+        coilLfo.frequency.value = 3.2;
+        const coilDepth = ctx.createGain();
+        coilDepth.gain.setValueAtTime(0.06, now + 2.8);
+        coilDepth.gain.linearRampToValueAtTime(0.0, now + 10.5);
+        coilLfo.connect(coilDepth);
+        coilDepth.connect(subGain.gain);
 
-        // 2. Vortex suck-in: sweeping bandpass noise through the collapse
-        const suck = ctx.createBufferSource();
-        suck.buffer = createNoiseBuffer(ctx);
-        suck.loop = true;
+        subHum.connect(subGain);
+        subGain.connect(master);
+        subHum.start(now);
+        subHum.stop(now + totalSingDur + 0.1);
+        coilLfo.start(now);
+        coilLfo.stop(now + totalSingDur + 0.1);
 
-        const suckFilt = ctx.createBiquadFilter();
-        suckFilt.type = 'bandpass';
-        suckFilt.frequency.setValueAtTime(70, now);
-        suckFilt.frequency.exponentialRampToValueAtTime(760, now + 3.0); // Spiral-in rush
-        suckFilt.frequency.exponentialRampToValueAtTime(120, now + 3.8); // Settles into the knot
-        suckFilt.Q.value = 1.8;
+        // 2. High-Energy Plasma Surge Roar (Sweeping Bandpass Filtered Noise)
+        const plasmaNoise = ctx.createBufferSource();
+        plasmaNoise.buffer = createNoiseBuffer(ctx);
+        plasmaNoise.loop = true;
 
-        const suckGain = ctx.createGain();
-        suckGain.gain.setValueAtTime(0.0001, now);
-        suckGain.gain.exponentialRampToValueAtTime(0.26, now + 2.9);
-        suckGain.gain.exponentialRampToValueAtTime(0.0001, now + 4.0);
+        const plasmaFilter = ctx.createBiquadFilter();
+        plasmaFilter.type = 'bandpass';
+        plasmaFilter.frequency.setValueAtTime(110, now);
+        plasmaFilter.frequency.exponentialRampToValueAtTime(680, now + 2.8);   // Magnetic ignition rush
+        plasmaFilter.frequency.linearRampToValueAtTime(840, now + 6.5);        // Peak thermal surge
+        plasmaFilter.frequency.linearRampToValueAtTime(520, now + 10.5);       // Confinement stability
+        plasmaFilter.frequency.exponentialRampToValueAtTime(90, now + totalSingDur); // Magnetic quench
+        plasmaFilter.Q.value = 2.2;
 
-        suck.connect(suckFilt);
-        suckFilt.connect(suckGain);
-        suckGain.connect(master);
-        suck.start(now);
-        suck.stop(now + 4.1);
+        const plasmaGain = ctx.createGain();
+        plasmaGain.gain.setValueAtTime(0.0001, now);
+        plasmaGain.gain.exponentialRampToValueAtTime(0.28, now + 2.8);
+        plasmaGain.gain.linearRampToValueAtTime(0.22, now + 10.5);
+        plasmaGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSingDur);
 
-        // 3. Knot lock thump (+3s): the moment the trefoil snaps into place
-        const lockT = now + 3.0;
+        // 360° Turntable sweeping AM pulse (0.75Hz)
+        const rotLfo = ctx.createOscillator();
+        rotLfo.type = 'sine';
+        rotLfo.frequency.value = 0.75;
+        const rotDepth = ctx.createGain();
+        rotDepth.gain.setValueAtTime(0.05, now + 2.8);
+        rotDepth.gain.linearRampToValueAtTime(0.0, now + 10.5);
+        rotLfo.connect(rotDepth);
+        rotDepth.connect(plasmaGain.gain);
+
+        plasmaNoise.connect(plasmaFilter);
+        plasmaFilter.connect(plasmaGain);
+        plasmaGain.connect(master);
+        plasmaNoise.start(now);
+        plasmaNoise.stop(now + totalSingDur + 0.1);
+        rotLfo.start(now);
+        rotLfo.stop(now + totalSingDur + 0.1);
+
+        // 3. Ignition Core Blast Thump (at t = 2.8s)
+        const ignT = now + 2.8;
         const thump = ctx.createOscillator();
         thump.type = 'sine';
-        thump.frequency.setValueAtTime(95, lockT);
-        thump.frequency.exponentialRampToValueAtTime(36, lockT + 0.45);
+        thump.frequency.setValueAtTime(115, ignT);
+        thump.frequency.exponentialRampToValueAtTime(38, ignT + 0.45);
 
         const thumpGain = ctx.createGain();
-        thumpGain.gain.setValueAtTime(0.0001, lockT);
-        thumpGain.gain.exponentialRampToValueAtTime(0.28, lockT + 0.03);
-        thumpGain.gain.exponentialRampToValueAtTime(0.0001, lockT + 0.55);
+        thumpGain.gain.setValueAtTime(0.0001, ignT);
+        thumpGain.gain.exponentialRampToValueAtTime(0.32, ignT + 0.03);
+        thumpGain.gain.exponentialRampToValueAtTime(0.0001, ignT + 0.55);
 
         thump.connect(thumpGain);
         thumpGain.connect(master);
-        thump.start(lockT);
-        thump.stop(lockT + 0.6);
+        thump.start(ignT);
+        thump.stop(ignT + 0.6);
 
-        // 4. Flowing energy hum (3s -> 11.5s): LFO-breathing bandpassed noise
-        const flow = ctx.createBufferSource();
-        flow.buffer = createNoiseBuffer(ctx);
-        flow.loop = true;
+        // 4. Cold Fusion Re-crystallization Chime (13.5s -> 16.0s: E5 -> B4 crystal bell)
+        const chimeT = now + 13.5;
+        const chime = ctx.createOscillator();
+        chime.type = 'triangle';
+        chime.frequency.setValueAtTime(659.25, chimeT); // E5
+        chime.frequency.exponentialRampToValueAtTime(493.88, chimeT + 1.2); // B4
 
-        const flowFilt = ctx.createBiquadFilter();
-        flowFilt.type = 'bandpass';
-        flowFilt.frequency.setValueAtTime(430, now + 3.0);
-        flowFilt.frequency.linearRampToValueAtTime(560, now + 11.5);
-        flowFilt.Q.value = 2.2;
+        const chimeGain = ctx.createGain();
+        chimeGain.gain.setValueAtTime(0.0001, chimeT);
+        chimeGain.gain.exponentialRampToValueAtTime(0.12, chimeT + 0.06);
+        chimeGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSingDur);
 
-        const flowGain = ctx.createGain();
-        flowGain.gain.setValueAtTime(0.0001, now + 3.0);
-        flowGain.gain.linearRampToValueAtTime(0.15, now + 4.2);
-        flowGain.gain.linearRampToValueAtTime(0.12, now + 10.5);
-        flowGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSingDur);
-
-        const pulseLfo = ctx.createOscillator();
-        pulseLfo.type = 'sine';
-        pulseLfo.frequency.value = 0.9;                               // Slow energy pulse
-        const pulseDepth = ctx.createGain();
-        pulseDepth.gain.setValueAtTime(0.055, now + 3.0);
-        pulseDepth.gain.linearRampToValueAtTime(0.0, now + 11.5);
-        pulseLfo.connect(pulseDepth);
-        pulseDepth.connect(flowGain.gain);
-
-        flow.connect(flowFilt);
-        flowFilt.connect(flowGain);
-        flowGain.connect(master);
-        flow.start(now + 3.0);
-        flow.stop(now + totalSingDur + 0.1);
-        pulseLfo.start(now + 3.0);
-        pulseLfo.stop(now + totalSingDur + 0.1);
-
-        // 5. Reformation shimmer (11.5s -> end): glassy descending gliss
-        const shim = ctx.createOscillator();
-        shim.type = 'triangle';
-        shim.frequency.setValueAtTime(1350, now + 11.5);
-        shim.frequency.exponentialRampToValueAtTime(310, now + totalSingDur);
-
-        const shimGain = ctx.createGain();
-        shimGain.gain.setValueAtTime(0.0001, now + 11.5);
-        shimGain.gain.exponentialRampToValueAtTime(0.07, now + 11.9);
-        shimGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSingDur);
-
-        shim.connect(shimGain);
-        shimGain.connect(master);
-        shim.start(now + 11.5);
-        shim.stop(now + totalSingDur + 0.1);
+        chime.connect(chimeGain);
+        chimeGain.connect(master);
+        chime.start(chimeT);
+        chime.stop(now + totalSingDur + 0.1);
 
         setTimeout(() => {
             try {
-                drone.disconnect();
-                droneGain.disconnect();
-                suck.disconnect();
-                suckFilt.disconnect();
-                suckGain.disconnect();
+                subHum.disconnect();
+                subGain.disconnect();
+                coilLfo.disconnect();
+                coilDepth.disconnect();
+                plasmaNoise.disconnect();
+                plasmaFilter.disconnect();
+                plasmaGain.disconnect();
+                rotLfo.disconnect();
+                rotDepth.disconnect();
                 thump.disconnect();
                 thumpGain.disconnect();
-                flow.disconnect();
-                flowFilt.disconnect();
-                flowGain.disconnect();
-                pulseLfo.disconnect();
-                pulseDepth.disconnect();
-                shim.disconnect();
-                shimGain.disconnect();
+                chime.disconnect();
+                chimeGain.disconnect();
                 master.disconnect();
             } catch (_) {}
         }, (totalSingDur + 0.2) * 1000);
@@ -398,103 +447,116 @@ export function playExplosionSound(stateParam, estimatedRecovery) {
     }
 
     if (motionStyle === 5) {
-        // -- Starling Flock Synthesizer (~14s) --
-        // Airframe Whoosh -> LFO Wingbeat Flutter -> Takeoff Chirps -> Settling Tail
+        // -- Braided Aurora Currents & Swarm Synthesizer (~14s) --
+        // Spatial Stereo Panner -> Laminar Flow Airframe -> 3-Voice Triadic Harmonic Chord Hum -> Touchdown Whisper
         const totalMurDur = 14.0;
+        const pat = (s && s.pattern) || {};
+        const modeIndex = (pat.mModeIndex != null) ? pat.mModeIndex : Math.floor(Math.random() * 5);
+        const pSign = (pat.mLaunchDir != null && pat.mLaunchDir < 0) ? -1.0 : 1.0;
 
-        // 1. Airframe body: low-pass noise following the flock's energy envelope
+        // Stereo Panner (tracking sweeping macro flight path)
+        const panner = (typeof ctx.createStereoPanner === 'function') ? ctx.createStereoPanner() : null;
+        if (panner) {
+            panner.pan.setValueAtTime(0.0, now);
+            panner.pan.linearRampToValueAtTime(-0.60 * pSign, now + 3.0);  // Phase 1: Sweep
+            panner.pan.linearRampToValueAtTime(0.65 * pSign, now + 7.5);   // Phase 2: Braid sweep
+            panner.pan.linearRampToValueAtTime(-0.45 * pSign, now + 10.5); // Phase 3: Wavefront drift
+            panner.pan.linearRampToValueAtTime(0.0, now + 13.0);           // Phase 4: Center landing
+            panner.connect(master);
+        }
+        const audioOut = panner || master;
+
+        // 1. Laminar Flow Airframe: smooth bandpass noise
         const air = ctx.createBufferSource();
         air.buffer = createNoiseBuffer(ctx);
         air.loop = true;
 
         const airFilt = ctx.createBiquadFilter();
-        airFilt.type = 'lowpass';
-        airFilt.frequency.setValueAtTime(220, now);
-        airFilt.frequency.linearRampToValueAtTime(920, now + 3.2);   // Flight climb
-        airFilt.frequency.linearRampToValueAtTime(680, now + 9.0);   // Cruising flock
-        airFilt.frequency.linearRampToValueAtTime(180, now + 12.0);  // Settling descent
-        airFilt.frequency.exponentialRampToValueAtTime(90, now + totalMurDur);
+        airFilt.type = 'bandpass';
+        airFilt.frequency.setValueAtTime(180, now);
+        airFilt.frequency.linearRampToValueAtTime(680, now + 3.5);   // Silk lift
+        airFilt.frequency.linearRampToValueAtTime(540, now + 7.5);   // Braid cruise
+        airFilt.frequency.linearRampToValueAtTime(720, now + 9.5);   // Aurora surge
+        airFilt.frequency.linearRampToValueAtTime(160, now + 12.0);  // Settling descent
+        airFilt.frequency.exponentialRampToValueAtTime(60, now + totalMurDur);
+        airFilt.Q.value = 1.4;
 
         const airGain = ctx.createGain();
         airGain.gain.setValueAtTime(0.0001, now);
-        airGain.gain.exponentialRampToValueAtTime(0.20, now + 3.0);
-        airGain.gain.linearRampToValueAtTime(0.16, now + 9.0);
+        airGain.gain.exponentialRampToValueAtTime(0.18, now + 3.0);
+        airGain.gain.linearRampToValueAtTime(0.16, now + 7.5);
+        airGain.gain.linearRampToValueAtTime(0.20, now + 9.5);       // Wave surge
+        airGain.gain.linearRampToValueAtTime(0.08, now + 12.0);
         airGain.gain.exponentialRampToValueAtTime(0.0001, now + totalMurDur);
 
         air.connect(airFilt);
         airFilt.connect(airGain);
-        airGain.connect(master);
+        airGain.connect(audioOut);
         air.start(now);
         air.stop(now + totalMurDur + 0.1);
 
-        // 2. Wingbeats: bandpassed noise amplitude-modulated by a ~10Hz LFO
-        const wings = ctx.createBufferSource();
-        wings.buffer = createNoiseBuffer(ctx);
-        wings.loop = true;
+        // 2. 3-Voice Triadic Harmonic Chords — Distinct palette per choreography mode
+        const chordPalettes = [
+            [329.63, 415.30, 493.88], // Mode 0: E Major Triad (E4, G#4, B4)
+            [293.66, 369.99, 440.00], // Mode 1: D Major Triad (D4, F#4, A4)
+            [220.00, 277.18, 329.63], // Mode 2: A Major Triad (A3, C#4, E4)
+            [369.99, 440.00, 554.37], // Mode 3: F# Minor Triad (F#4, A4, C#5)
+            [261.63, 329.63, 392.00]  // Mode 4: C Major Triad (C4, E4, G4)
+        ];
+        const chordPitches = chordPalettes[modeIndex % chordPalettes.length];
+        const chordOscs = [];
+        const chordGains = [];
 
-        const wingsFilt = ctx.createBiquadFilter();
-        wingsFilt.type = 'bandpass';
-        wingsFilt.frequency.value = 760;
-        wingsFilt.Q.value = 1.1;
+        chordPitches.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+            osc.frequency.linearRampToValueAtTime(freq * 1.05, now + 7.5);
+            osc.frequency.linearRampToValueAtTime(freq * 0.95, now + 11.5);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + totalMurDur);
 
-        const wingsGain = ctx.createGain();
-        wingsGain.gain.setValueAtTime(0.0001, now);
-        wingsGain.gain.linearRampToValueAtTime(0.10, now + 3.0);
-        wingsGain.gain.linearRampToValueAtTime(0.08, now + 9.0);
-        wingsGain.gain.linearRampToValueAtTime(0.0001, now + 12.5);
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.linearRampToValueAtTime(0.045, now + 2.5 + idx * 0.3);
+            gain.gain.linearRampToValueAtTime(0.065, now + 7.5);
+            gain.gain.linearRampToValueAtTime(0.035, now + 11.5);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + totalMurDur);
 
-        const lfo = ctx.createOscillator();
-        lfo.type = 'sine';
-        lfo.frequency.setValueAtTime(8.0, now);
-        lfo.frequency.linearRampToValueAtTime(12.5, now + 9.0);      // Excited flight flutter
-        lfo.frequency.linearRampToValueAtTime(7.0, now + totalMurDur);
+            osc.connect(gain);
+            gain.connect(audioOut);
+            osc.start(now);
+            osc.stop(now + totalMurDur + 0.1);
 
-        const lfoDepth = ctx.createGain();
-        lfoDepth.gain.setValueAtTime(0.0, now);
-        lfoDepth.gain.linearRampToValueAtTime(0.085, now + 3.0);
-        lfoDepth.gain.linearRampToValueAtTime(0.06, now + 9.0);
-        lfoDepth.gain.linearRampToValueAtTime(0.0, now + 12.5);
+            chordOscs.push(osc);
+            chordGains.push(gain);
+        });
 
-        lfo.connect(lfoDepth);
-        lfoDepth.connect(wingsGain.gain);
+        // 3. Ethereal Touchdown Shimmer Glissando (11.5s -> end)
+        const shimmer = ctx.createOscillator();
+        shimmer.type = 'triangle';
+        shimmer.frequency.setValueAtTime(chordPitches[0] * 3.0, now + 11.5);
+        shimmer.frequency.exponentialRampToValueAtTime(chordPitches[0], now + totalMurDur);
 
-        wings.connect(wingsFilt);
-        wingsFilt.connect(wingsGain);
-        wingsGain.connect(master);
-        wings.start(now);
-        wings.stop(now + totalMurDur + 0.1);
-        lfo.start(now);
-        lfo.stop(now + totalMurDur + 0.1);
+        const shimmerGain = ctx.createGain();
+        shimmerGain.gain.setValueAtTime(0.0001, now + 11.5);
+        shimmerGain.gain.exponentialRampToValueAtTime(0.04, now + 11.9);
+        shimmerGain.gain.exponentialRampToValueAtTime(0.0001, now + totalMurDur);
 
-        // 3. Takeoff chirps: three short descending blips as the flock lifts
-        for (let k = 0; k < 3; k++) {
-            const ct = now + 0.25 + k * 0.24;
-            const chirp = ctx.createOscillator();
-            chirp.type = 'sine';
-            chirp.frequency.setValueAtTime(2350 + k * 190, ct);
-            chirp.frequency.exponentialRampToValueAtTime(1750 + k * 140, ct + 0.09);
-
-            const chirpGain = ctx.createGain();
-            chirpGain.gain.setValueAtTime(0.0001, ct);
-            chirpGain.gain.exponentialRampToValueAtTime(0.09, ct + 0.02);
-            chirpGain.gain.exponentialRampToValueAtTime(0.0001, ct + 0.11);
-
-            chirp.connect(chirpGain);
-            chirpGain.connect(master);
-            chirp.start(ct);
-            chirp.stop(ct + 0.12);
-        }
+        shimmer.connect(shimmerGain);
+        shimmerGain.connect(audioOut);
+        shimmer.start(now + 11.5);
+        shimmer.stop(now + totalMurDur + 0.1);
 
         setTimeout(() => {
             try {
                 air.disconnect();
                 airFilt.disconnect();
                 airGain.disconnect();
-                wings.disconnect();
-                wingsFilt.disconnect();
-                wingsGain.disconnect();
-                lfo.disconnect();
-                lfoDepth.disconnect();
+                chordOscs.forEach(o => o.disconnect());
+                chordGains.forEach(g => g.disconnect());
+                shimmer.disconnect();
+                shimmerGain.disconnect();
+                if (panner) panner.disconnect();
                 master.disconnect();
             } catch (_) {}
         }, (totalMurDur + 0.2) * 1000);

@@ -230,16 +230,16 @@ const CONFIG = {
             soundDuration: 15.0,
             soundType: 'sawtooth'
         },
-                                                                        BREEZE: {
-            description: 'A wind field bends, rolls and disperses your message like leaves in a gust.',
-            expansionDuration: 1.0,
-            contractionDuration: 1.6,
+        BREEZE: {
+            description: 'A gentle whisper breeze flexes and rustles the intact letters, then augments into a multi-tier leaf storm before floating softly home.',
+            expansionDuration: 2.5,
+            contractionDuration: 2.2,
             explosionMaxDistMultiplier: 28.0,
-            motionStyle: 2, // 4-phase breeze: Straight Fall (1.0s) -> 2s Ground Rest (1.0-3.0s) -> Braided Leaf Breeze (3.0-6.6s) -> Reverse Flow to Floor (6.6-10.2s) -> Reverse Drop Elevation Home (10.2-11.8s)
+            motionStyle: 2, // 4-phase breeze: Foliage Sway (0-2.5s) -> Wind Surge Dispersal (2.5-7.0s) -> Tailwind Alignment (7.0-9.8s) -> Parachute Landing (9.8-12.0s)
             trailStrength: 0.60,
             emberBudget: 0,
             soundPitch: 95,
-            soundDuration: 11.8,
+            soundDuration: 12.0,
             soundType: 'sine'
         },
         EXPLODE: {
@@ -256,11 +256,11 @@ const CONFIG = {
             soundType: 'sine'
         },
         TORUS: {
-            description: 'Gravity forges your message into a flowing torus knot of light around a black hole, then lets it rain back home.',
-            expansionDuration: 8.0,   // embers fire at jet ignition (8s)
+            description: 'Magnetic fields ignite your message into a high-energy tokamak fusion plasma ring with helical currents and solar flares, cooling into crystalline letterforms.',
+            expansionDuration: 8.0,   // embers fire at plasma ignition
             contractionDuration: 4.0,
             explosionMaxDistMultiplier: 30.0,
-            motionStyle: 4, // 3-phase ~16s trefoil torus knot: Collapse (0-3) -> Knot Flow (3-11.5) -> Reformation (11.5-16)
+            motionStyle: 4, // 4-phase 16s Tokamak: Magnetic Pinch (0-2.8) -> Helical Plasma Surge (2.8-10.5) -> Quench (10.5-13.5) -> Re-crystallize (13.5-16)
             trailStrength: 0.8,
             emberBudget: 50,
             soundPitch: 40,
@@ -268,11 +268,11 @@ const CONFIG = {
             soundType: 'sine'
         },
         MURMURATION: {
-            description: 'Your message takes flight — whip turns, split-and-merge waves, falcon strikes and startle sparks, then it settles home.',
-            expansionDuration: 2.0,
-            contractionDuration: 2.0,
+            description: 'Your message takes flight in braided aurora currents — 3 interwoven silk ribbons spiral in 3D, ripple in wave curtains, and converge home.',
+            expansionDuration: 2.5,
+            contractionDuration: 2.5,
             explosionMaxDistMultiplier: 30.0,
-            motionStyle: 5, // 4-phase ~14s flock: Take-off (0-2) -> Flight: jinks/snap-turn/split/dodges/boil/scouts (2-9) -> Settle (9-12) -> Landing (12-14)
+            motionStyle: 5, // 4-phase ~14s braided aurora: Unspooling (0-2.5) -> 3-Strand Braid (2.5-7.5) -> Wavefront (7.5-11.5) -> Convergence (11.5-14)
             trailStrength: 0.70,
             emberBudget: 60,
             soundPitch: 70,
@@ -410,6 +410,8 @@ uniform float uMJinkFreq;
 uniform float uMJinkPh;
 uniform float uMBreathAmp;
 uniform float uMScoutAmp;
+uniform float uMMergeTime;
+uniform float uMPodAngle;
 // Torus knot auto-calibration (world units, from the camera frustum)
 uniform float uKnotScale;
 // Hover ripples: vec4 slots (x, y, age, amp) in local space, amp <= 0 = inactive.
@@ -527,119 +529,110 @@ vec3 evalTornadoGPU(float i, vec3 home, float u, vec3 seed, float cd, float elap
     }
 }
 
-vec3 computeBreezePlumeGPU(float tWind, float curElapsed, float lambda, vec3 gPos, float gx, float intensity, float swirl, float cd, float windSpeedMult, float buoyancy, float liftStart, float seedZ, float t2, float i) {
-    float upwindPos = (gPos.x * gx) + 25.0;
-    float randOffset = (mod(i * 53.17, 100.0) / 100.0) * 0.30;
-    float gustDelay = min(0.75, max(0.0, upwindPos * 0.015 + randOffset));
-    float localT = max(0.0, tWind - gustDelay);
-    float pLocal = min(1.0, localT / (t2 - gustDelay + 1e-4));
-
-    if (localT <= 0.0) {
-        return gPos;
-    }
-
-    // -- Option 1: 3D Spiral Ribbons & Braided Filaments --
-    float ribbonId = mod(i, 3.0);
-    float ribbonPhase = ribbonId * 2.094395; // 2*PI/3
-    float braidWavelength = 0.15;
-    float braidSpeed = 2.8;
-    float braidAngle = braidWavelength * (gPos.x * gx) - braidSpeed * curElapsed + ribbonPhase;
-    float braidRadius = (1.8 + 3.8 * buoyancy) * min(1.0, localT / 0.8) * intensity;
-    float braidY = braidRadius * sin(braidAngle);
-    float braidZ = braidRadius * cos(braidAngle);
-    float braidX = gx * (braidRadius * 0.55 * sin(braidAngle * 0.5));
-
-    // -- Option 6: Floating Leaf Flutter & Pendulum Gliding --
-    float leafRockFreq = 3.6 + (mod(i * 41.73, 100.0) / 100.0) * 2.0;
-    float leafPhase = (mod(i * 67.89, 100.0) / 100.0) * 6.28318;
-    float pendulumAngle = leafRockFreq * curElapsed + leafPhase;
-
-    float leafGlideX = gx * (sin(pendulumAngle) * (0.80 + 1.10 * windSpeedMult)) * intensity;
-    float leafGlideY = abs(cos(pendulumAngle)) * (0.95 + 1.45 * buoyancy) * intensity;
-    float leafGlideZ = sin(pendulumAngle * 0.75 + leafPhase) * (1.30 + 1.80 * windSpeedMult) * intensity;
-
-    float leafWobble = sin(9.5 * curElapsed + i * 0.35) * 0.40 * intensity * min(1.0, localT);
-
-    // -- Swirl / Whirlwind Vortex Dynamics (Randomized from 0.0 to 1.4+) --
-    float swirlSign = (mod(i * 29.17, 10.0) > 5.0) ? 1.0 : -1.0;
-    float swirlAngle = 0.12 * (gPos.x * gx) - 3.8 * curElapsed * swirlSign + (mod(i * 31.41, 100.0) / 100.0) * 6.28318;
-    float swirlEnvelope = sin(3.14159265 * pLocal);
-    float swirlRadius = (3.2 + 6.0 * buoyancy) * swirl * intensity * swirlEnvelope;
-    float swirlY = swirlRadius * sin(swirlAngle);
-    float swirlZ = swirlRadius * cos(swirlAngle);
-    float swirlX = gx * (swirlRadius * 0.35 * cos(swirlAngle * 2.0));
-
-    if (lambda > 0.82) {
-        // -- Strata C: Ground Skittering Leaves (Tumbling along floor) --
-        float groundSpeed = (3.2 + 6.0 * windSpeedMult) * intensity;
-        float groundDist = groundSpeed * (localT * 0.85 + 0.08 * localT * localT);
-        float groundSkip = (0.35 * abs(sin(pendulumAngle)) + 0.10 * sin(curElapsed * 10.0 + i)) * min(1.0, localT);
-        float groundZDrift = (0.75 * sin(pendulumAngle * 0.6) + leafWobble + swirlZ * 0.25) * min(1.0, localT);
-        return vec3(gPos.x + gx * groundDist + leafGlideX * 0.4 + swirlX * 0.25, max(gPos.y, gPos.y + groundSkip), gPos.z + groundZDrift);
-    } else {
-        // -- Strata A & B: Airborne Braided Ribbon Streams + Floating Leaf Gliding + Swirl Vortex --
-        float indLiftStart = liftStart * 0.50;
-        float liftProg = min(1.0, max(0.0, (pLocal - indLiftStart) / (1.0 - indLiftStart + 1e-4)));
-        float eLift = liftProg * liftProg * (3.0 - 2.0 * liftProg);
-
-        float randSpeedVariation = (mod(i * 83.11, 100.0) / 100.0) * 2.4 - 1.2;
-        float baseSpeed = max(2.4, 4.2 + 8.5 * windSpeedMult + 3.8 * buoyancy + randSpeedVariation);
-        float xDispersal = (localT * baseSpeed + 0.45 * localT * localT * (0.4 + 0.6 * buoyancy)) * intensity;
-
-        float randHeight = (mod(i * 93.41, 100.0) / 100.0) * 2.8;
-        float baseLiftHeight = (3.0 + 7.5 * buoyancy + randHeight) * intensity;
-        float totalLift = max(0.0, baseLiftHeight + braidY + leafGlideY + leafWobble);
-
-        float rx = gPos.x + gx * xDispersal + braidX + leafGlideX + eLift * swirlX;
-        float ry = max(gPos.y, gPos.y + eLift * (totalLift + swirlY));
-        float rz = gPos.z + eLift * (braidZ + leafGlideZ + leafWobble + swirlZ);
-
-        return vec3(rx, ry, rz);
-    }
-}
-
+// Style 2: Aero-Elastic Foliage Sway & Dispersal Streamlines — Starts with in-place cantilever
+// foliage sway & leaf flutter (Phase 1: 0-2.5s), augments into 3-tier wind dispersal with turbulent canopy streamers (Phase 2 & 3: 2.5-9.8s),
+// and lands gently via parachute settling (Phase 4: 9.8-12.0s). Mirrors evaluateBreezeParticle in physics-math.js.
 vec3 evalBreezeGPU(float i, vec3 home, float cd, float elapsed, float gx, float intensity, float swirl) {
-    float t1 = 1.0;
-    float tPause = 2.0;
-    float t2 = 3.6;
-    float t3 = 3.6;
-    float t4 = 1.6;
+    float t1 = 2.5;
+    float t2 = 4.5;
+    float t3 = 2.8;
+    float t4 = 2.2;
 
-    float lambda = mod(i * 37.119, 100.0) / 100.0;
-    bool isClash = lambda < 0.22;
-    float seedX = mod(i * 19.417, 100.0) - 50.0;
-    float seedZ = mod(i * 29.831, 100.0) - 50.0;
-    float scatX = isClash ? seedX * 0.05 : 0.0;
-    float scatZ = isClash ? seedZ * 0.04 : 0.0;
-    float yGround = -11.0;
+    float turbAmp = 0.85 + 0.45 * intensity + 0.35 * swirl;
+    float billowFreq = 0.22 + 0.04 * sin(intensity * 2.5);
+    float windTilt = 0.08 * sin(intensity * 4.0);
 
-    vec3 gPos = vec3(home.x + scatX, yGround + (home.y * 0.03), home.z + scatZ);
-    float windSpeedMult = 0.55 + (mod(i * 43.71, 100.0) / 100.0) * 0.90;
-    float buoyancy = 0.40 + (mod(i * 81.33, 100.0) / 100.0) * 1.10;
-    float liftStart = pow(mod(i * 61.19, 100.0) / 100.0, 1.4) * 0.60;
+    float p1h = mod(i * 37.119, 100.0) / 100.0;
+    float p2h = mod(i * 61.19, 100.0) / 100.0;
+    float p3h = mod(i * 83.11, 100.0) / 100.0;
+    float p4h = mod(i * 53.17, 100.0) / 100.0;
 
-    if (elapsed < t1) {
-        float p1 = elapsed / t1;
-        float eDrop = p1 * p1;
-        float pImpact = max(0.0, (p1 - 0.70) / 0.30);
-        float eImpact = pImpact * (2.0 - pImpact);
-        float recoil = (isClash ? 1.6 : 0.5) * sin(3.14159265 * pImpact) * (1.0 - pImpact);
-        return vec3(home.x + scatX * eImpact, (1.0 - eDrop) * home.y + eDrop * gPos.y + recoil, home.z + scatZ * eImpact);
-    } else if (elapsed < t1 + tPause) {
-        return gPos;
-    } else if (elapsed < t1 + tPause + t2) {
-        float tWind = elapsed - (t1 + tPause);
-        return computeBreezePlumeGPU(tWind, elapsed, lambda, gPos, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i);
-    } else if (elapsed < t1 + tPause + t2 + t3) {
-        float p3 = (elapsed - (t1 + tPause + t2)) / t3;
-        float smoothP3 = p3 * p3 * (3.0 - 2.0 * p3);
-        float tWindRev = t2 * (1.0 - smoothP3);
-        return computeBreezePlumeGPU(tWindRev, elapsed, lambda, gPos, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i);
-    } else {
-        float p4 = min(1.0, (elapsed - (t1 + tPause + t2 + t3)) / t4);
-        float eRise = p4 * p4 * (3.0 - 2.0 * p4);
-        return mix(gPos, home, eRise);
+    float te = elapsed * cd;
+
+    // Phase 1: In-place aero-elastic sway & strictly upward leaf flutter (Py >= hy always)
+    float rampIn = min(1.0, elapsed / 0.6);
+    rampIn = rampIn * rampIn * (3.0 - 2.0 * rampIn);
+
+    float cantilever = pow(max(0.0, (home.y + 12.0) / 24.0), 1.3);
+    float swayWave = 2.2 * sin(2.8 * te - 0.12 * home.x + p1h * 1.5) + 0.8 * sin(5.5 * te + p2h * 3.14159265);
+    float sway = cantilever * swayWave * gx * intensity * rampIn;
+    float flutterUp = abs(sin(8.5 * te + p4h * 6.28318)) * 0.45 * cantilever * intensity * rampIn;
+    float depthWaft = sin(1.8 * te + p1h * 6.28318) * 1.5 * cantilever * intensity * rampIn;
+
+    vec3 P = vec3(home.x + sway, home.y + flutterUp, home.z + depthWaft);
+
+    // Phase 2 & 3: Wind surge dispersal with peeling arrival wave
+    if (elapsed > t1) {
+        float tauDisperse = elapsed - t1;
+        float sweepCoord = (gx > 0.0) ? (home.x + 45.0) : (45.0 - home.x);
+        float peelDelay = sweepCoord * 0.008 + p2h * 0.35 + p3h * 0.15;
+        float ltSurge = max(0.0, tauDisperse - peelDelay);
+        float pSurge = min(1.0, ltSurge / 1.2);
+        pSurge = pSurge * pSurge * (3.0 - 2.0 * pSurge);
+
+        float surgeActiveDur = t2 + t3;
+        float uFlight = min(1.0, ltSurge / surgeActiveDur);
+        float sDist = (uFlight * (2.0 - uFlight));
+        float flightTimeEnv = sin(min(3.14159265, uFlight * 3.14159265));
+
+        if (pSurge > 0.0) {
+            float strata = p1h;
+            float rockFreq = 3.2 + p3h * 1.8;
+            float rockAngle = rockFreq * te + p2h * 6.28318;
+
+            vec3 drift = vec3(0.0);
+            if (strata < 0.45) {
+                // Highly Turbulent Canopy Streamers (Anti-Blob, Elongated Vortex Ribbons)
+                float speedVar = 0.70 + 0.60 * p3h + 0.30 * sin(0.15 * home.x + p1h * 6.28318);
+                float maxDist = (30.0 + 10.0 * p2h) * intensity * speedVar;
+                drift.x = gx * (maxDist * sDist);
+
+                float waveY1 = (4.0 + 4.5 * p2h) * sin(billowFreq * (home.x + gx * drift.x * 0.35) - 2.8 * te + p1h * 6.28318);
+                float waveY2 = (1.5 + 1.2 * p4h) * sin(0.35 * home.x - 4.2 * te + p3h * 6.28318);
+                float baseLift = (6.0 + 8.0 * p3h) * flightTimeEnv;
+                drift.y = max(0.0, baseLift + (waveY1 + waveY2) * flightTimeEnv * turbAmp);
+
+                float waveZ1 = (4.0 + 4.5 * p4h) * cos(billowFreq * (home.x + gx * drift.x * 0.3) - 2.4 * te + p2h * 6.28318);
+                float waveZ2 = 1.6 * sin(6.5 * te + p1h * 6.28318);
+                drift.z = (waveZ1 + waveZ2) * flightTimeEnv * turbAmp;
+            } else if (strata < 0.82) {
+                // Mid-Air Tumbling Leaves: 3D pendulum rocking and strictly upward buoyant lift
+                float speedVar = 0.80 + 0.40 * p4h;
+                float maxDist = (22.0 + 7.0 * p3h) * intensity * speedVar;
+                float rockX = sin(rockAngle) * (2.0 + 1.0 * p1h) * (1.0 - uFlight * 0.6);
+                drift.x = gx * (maxDist * sDist + rockX);
+
+                float rockY = abs(cos(rockAngle)) * (4.5 + 3.0 * p4h) * flightTimeEnv;
+                float flutterLift = abs(sin(3.0 * te + p2h * 6.28318)) * 1.5 * flightTimeEnv * turbAmp;
+                drift.y = rockY + flutterLift;
+
+                drift.z = sin(rockAngle * 0.75 + p1h * 6.28318) * (3.5 + 2.0 * p2h) * flightTimeEnv * turbAmp;
+            } else {
+                // Ground Skitterers: Gliding & skipping above starting height
+                float maxDist = (18.0 + 5.0 * p2h) * intensity;
+                drift.x = gx * (maxDist * sDist);
+                drift.y = abs(sin(rockAngle * 1.5)) * (1.8 + 1.0 * p3h) * (1.0 - uFlight * 0.6);
+                drift.z = sin(rockAngle * 0.5) * (2.0 + 0.8 * p4h) * (1.0 - uFlight * 0.6);
+            }
+
+            P += drift * pSurge;
+        }
     }
+
+    // Strict non-descending invariant: particles NEVER drop below their starting height
+    P.y = max(home.y, P.y);
+
+    // Phase 4: Precision Harmonic Parachute Landing (9.8 -> 12.0s)
+    if (elapsed >= (t1 + t2 + t3)) {
+        float tau4 = elapsed - (t1 + t2 + t3);
+        float st = p2h * 0.20;
+        float q = clamp((tau4 - st) / (t4 - st), 0.0, 1.0);
+        float e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
+        P = mix(P, home, e4);
+    }
+
+    P.y = max(home.y, P.y);
+    return P;
 }
 
 vec3 evalKineticGPU(vec3 home, float cd, float elapsed) {
@@ -693,90 +686,92 @@ vec3 evalExplosionGPU(vec3 home, vec3 rDir, float rSpeed, float maxDist, float e
     return home + rDir * (dist * rSpeed);
 }
 
-// Style 4: black hole trefoil — vortex suck-in, flowing (2,3) torus knot,
-// spiral rain home. Mirrors evaluateTorusParticle in physics-math.js.
+// Style 4: Magnetic Tokamak Fusion Reactor & Solar Plasma Donut — Magnetic pinch ignition,
+// 3-strand helical plasma current confinement (q=4.2 pitch), pulsating coronal solar flares,
+// 360° turntable precession, and cold fusion re-crystallization. Mirrors evaluateTorusParticle in physics-math.js.
 vec3 evalTorusGPU(float i, vec3 home, float cd, float elapsed) {
-    float t1 = 3.0;
-    float T123 = 11.5;
-    float t4 = 4.5;
+    float t1 = 2.8;
+    float t2 = 7.7;
+    float t3 = 3.0;
+    float t4 = 2.5;
 
-    float hA = mod(i * 37.119, 100.0) / 100.0;
-    float hB = mod(i * 61.19, 100.0) / 100.0;
-    float hD = mod(i * 29.17, 100.0) / 100.0;
-    float hE = mod(i * 53.17, 100.0) / 100.0;
-    float hF = mod(i * 91.73, 100.0) / 100.0;
+    float p1h = mod(i * 37.119, 100.0) / 100.0;
+    float p2h = mod(i * 61.19, 100.0) / 100.0;
+    float p3h = mod(i * 83.11, 100.0) / 100.0;
+    float p4h = mod(i * 53.17, 100.0) / 100.0;
 
-    // Precessing frame: tiltX≈60° puts the knot plane nearly face-on to the
-    // camera (nn_z=sin(tiltX)) — projects as the woven 3-lobe clover
-    float tiltX = 1.05 + 0.04 * sin(0.35 * elapsed);
-    float tiltZ = 0.07 + 0.02 * cos(0.30 * elapsed);
+    float te = elapsed * cd;
+
+    float scale = uKnotScale > 0.0 ? uKnotScale : 14.5;
+    float R0 = scale;
+    float r0 = scale * 0.35;
+
+    float strandId = mod(i, 3.0);
+    float strandPhase = strandId * 2.094395;
+
+    float theta0 = p1h * 6.283185;
+    float phi0 = p2h * 6.283185 + strandPhase;
+
+    float omegaToroidal = 0.75 * cd;
+    float omegaPoloidal = 3.20 * cd;
+
+    float theta = theta0 + omegaToroidal * te;
+    float phi = phi0 + omegaPoloidal * te;
+
+    float flareEnv = sin(clamp((elapsed - t1) / t2, 0.0, 1.0) * 3.14159265);
+    float flarePulse = pow(abs(sin(3.5 * te + p3h * 6.28318)), 3.0);
+    float flareRadius = (3.5 + 4.5 * p4h) * flarePulse * flareEnv;
+    float flareZ = (2.2 * cos(2.8 * te + p1h * 6.28318)) * flareEnv;
+
+    float currentR = R0 + (r0 * (0.85 + 0.30 * sqrt(p3h)) + flareRadius) * cos(phi);
+    float localX = currentR * cos(theta);
+    float localY = currentR * sin(theta);
+    float localZ = (r0 * (0.85 + 0.30 * sqrt(p3h)) + flareRadius) * sin(phi) + flareZ;
+
+    float tiltX = 0.28 * sin(0.45 * te);
+    float tiltZ = 0.22 * cos(0.35 * te);
     float cTx = cos(tiltX);
     float sTx = sin(tiltX);
     float cTz = cos(tiltZ);
     float sTz = sin(tiltZ);
-    vec3 ex = vec3(cTz, sTz, 0.0);
-    vec3 ez = normalize(vec3(-sTz * sTx, cTz * sTx, cTx));
-    vec3 nn = cross(ex, ez);
 
-    // Trefoil as (2,3) torus knot — face-on woven clover like the reference.
-    float S = uKnotScale > 0.0 ? uKnotScale : 11.0;
-    float RK = S * 0.62;
-    float rK = S * 0.34;
-    float rt = S * 0.15 * (1.0 + 0.03 * sin(1.2 * elapsed));
-
-    // Slow flow along the knot for readability
-    float u = hA * 6.28318 + 0.14 * elapsed * cd;
-
-    // Path point and analytic tangent (local frame; z along nn)
-    float ringM = RK + rK * cos(3.0 * u);
-    vec3 cPath = vec3(ringM * cos(2.0 * u), ringM * sin(2.0 * u), rK * sin(3.0 * u));
-    vec3 tanL = vec3(
-        -3.0 * rK * sin(3.0 * u) * cos(2.0 * u) - 2.0 * ringM * sin(2.0 * u),
-        -3.0 * rK * sin(3.0 * u) * sin(2.0 * u) + 2.0 * ringM * cos(2.0 * u),
-        3.0 * rK * cos(3.0 * u));
-
-    mat3 basis = mat3(ex, ez, nn);
-    vec3 core = cPath * basis;
-    vec3 T = normalize(tanL * basis);
-
-    float phi = hF * 6.28318 + 0.18 * elapsed * cd;
-    // Solid rope cross-section — one wall per strand, reads as a single tube
-    float rtI = rt * sqrt(hE);
-    vec3 tN = normalize(nn - dot(nn, T) * T);
-    vec3 tB = cross(T, tN);
-    vec3 kp = core + rtI * (cos(phi) * tN + sin(phi) * tB);
+    vec3 kp = vec3(
+        localX * cTz - localY * sTz,
+        (localX * sTz + localY * cTz) * cTx - localZ * sTx,
+        (localX * sTz + localY * cTz) * sTx + localZ * cTx
+    );
 
     vec3 p;
     if (elapsed < t1) {
-        // Phase 1: vortex collapse — home swings around the axis onto the knot
-        float p1 = clamp((elapsed - hB * 0.35) / 2.65, 0.0, 1.0);
+        float p1 = elapsed / t1;
         float e1 = p1 * p1 * p1 * (p1 * (p1 * 6.0 - 15.0) + 10.0);
-        // The home endpoint swirls gently around the knot axis mid-flight —
-        // small angle so the eye sees ONE tube forming, never orbit rings.
-        float aR = 0.9 * cd * sin(3.14159265 * e1);
-        float cR = cos(aR), sR = sin(aR);
-        float dN = dot(nn, home);
-        vec3 cr = cross(nn, home);
-        vec3 h2 = home * cR + cr * sR + nn * dN * (1.0 - cR);
-        p = mix(h2, kp, e1);
-    } else if (elapsed < T123) {
-        // Phase 2: knot flow — streaming along the living knot
+
+        float pinchEnv = sin(clamp(p1 * 2.5, 0.0, 1.0) * 3.14159265);
+        float pinchScale = 1.0 - 0.22 * pinchEnv;
+
+        vec3 hPinch = home * pinchScale;
+
+        float swirlAngle = 1.5 * cd * sin(3.14159265 * e1);
+        float cS = cos(swirlAngle), sS = sin(swirlAngle);
+        vec3 sPos = vec3(hPinch.x * cS - hPinch.z * sS, hPinch.y, hPinch.x * sS + hPinch.z * cS);
+
+        p = mix(sPos, kp, e1);
+    } else if (elapsed < t1 + t2) {
         p = kp;
+    } else if (elapsed < t1 + t2 + t3) {
+        float p3 = (elapsed - (t1 + t2)) / t3;
+        float e3 = p3 * p3 * (3.0 - 2.0 * p3);
+        p = vec3(kp.x * (1.0 - 0.35 * e3), kp.y * (1.0 - 0.35 * e3), kp.z * (1.0 - 0.70 * e3));
     } else {
-        // Phase 3: reformation — release swirl, spiral rain back home
-        float p4 = clamp((elapsed - T123 - hD * 0.25) / 4.25, 0.0, 1.0);
-        float e4 = p4 * p4 * p4 * (p4 * (p4 * 6.0 - 15.0) + 10.0);
-        float aR = 0.9 * cd * sin(3.14159265 * e4);
-        float cR = cos(aR), sR = sin(aR);
-        float dN = dot(nn, kp);
-        vec3 cr = cross(nn, kp);
-        vec3 k2 = kp * cR + cr * sR + nn * dN * (1.0 - cR);
-        p = mix(k2, home, e4);
+        float tau4 = elapsed - (t1 + t2 + t3);
+        float st = p2h * 0.25;
+        float q = clamp((tau4 - st) / (t4 - st), 0.0, 1.0);
+        float e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
+        vec3 quenchPos = vec3(kp.x * 0.65, kp.y * 0.65, kp.z * 0.30);
+        p = mix(quenchPos, home, e4);
     }
-    // Turntable yaw about the world vertical (Y) axis: exactly ONE full
-    // revolution during Knot Flow, holding aligned before and after so the
-    // message always lands upright. Shows the knot's full 3D structure.
-    float yawU = clamp((elapsed - t1) / (T123 - t1), 0.0, 1.0);
+
+    float yawU = clamp((elapsed - t1) / (t2 + t3), 0.0, 1.0);
     float yawS = yawU * yawU * yawU * (yawU * (yawU * 6.0 - 15.0) + 10.0);
     float yawA = 6.28318530718 * yawS;
     float cyw = cos(yawA);
@@ -785,9 +780,8 @@ vec3 evalTorusGPU(float i, vec3 home, float cd, float elapsed) {
     return p;
 }
 
-// Style 5: starling flock — randomized flight plan + event schedule (snap turns,
-// split/merge, randomized predator dodges), sub-swarms, streaming, boil turbulence,
-// darting scouts. Mirrors evaluateMurmurationParticle in physics-math.js.
+// Style 5: 3D Diffused Volumetric Murmuration Blobs — 2-pod independent flight,
+// mid-flight merge into 1 giant super-blob, and subsequent re-separation. Mirrors evaluateMurmurationParticle in physics-math.js.
 vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
         float swX, float swY, float swZ,
         float fX, float fY, float fZ,
@@ -796,252 +790,107 @@ vec3 evalMurmurationGPU(float i, vec3 home, float cd, float elapsed,
         float d1T, float d2T, float d3T, float dodgeRad, float dodgeStr,
         float boilAmp, float boilFreq, float churnMult, float flutterMult,
         float jinkAmp, float jinkFreq, float jinkPh, float breathAmp,
-        float scoutAmp) {
+        float scoutAmp, float mergeTime, float podAngle) {
     float t1 = 2.0;
     float t2 = 7.0;
     float t3 = 3.0;
     float t4 = 2.0;
-    float T12 = 9.0;
-    float T123 = 12.0;
 
     float p1h = mod(i * 37.119, 100.0) / 100.0;
     float p2h = mod(i * 61.19, 100.0) / 100.0;
     float p3h = mod(i * 83.11, 100.0) / 100.0;
     float p4h = mod(i * 53.17, 100.0) / 100.0;
-    float p5h = mod(i * 71.53, 100.0) / 100.0;
-    float p6h = mod(i * 97.31, 100.0) / 100.0;
-    float ph1 = p1h * 6.28318;
-    float ph2 = p2h * 6.28318;
-    float ph3 = p3h * 6.28318;
 
-    // Launch ripple sweeping across the message
-    float delay = (launchDir > 0.0 ? home.x + 50.0 : 50.0 - home.x) * 0.017 + p2h * 0.55;
+    float sweepCoord = (launchDir > 0.0) ? (home.x + 45.0) : (45.0 - home.x);
+    float delay = sweepCoord * 0.010 + p2h * 0.35;
     float lt = elapsed - delay;
     if (lt <= 0.0) return home;
-    float lbRaw = min(1.0, lt / 0.9);
-    float lb = lbRaw * lbRaw * (3.0 - 2.0 * lbRaw);
-    float hop = sin(lbRaw * 3.14159265) * 2.2;
+
+    float lb = min(1.0, lt / 1.0);
+    lb = lb * lb * (3.0 - 2.0 * lb);
+    float hop = sin(min(1.0, lt / 1.0) * 3.14159265) * 1.8;
 
     float te = elapsed * cd;
 
-    // Flight-end constants keep settle/landing seamless for any plan
-    float endCx = swX * sin(fX + phX);
-    float endCy = swY * sin(fY + phY);
-    float endCz = swZ * sin(fZ + phZ);
-    float setCx = endCx * 0.25;
-    float setCy = endCy * 0.25 + 1.5;
-    float setCz = endCz * 0.25;
-    float kvx = swX * fX / 7.0;
-    float kvy = swY * fY / 7.0;
-    float kvz = swZ * fZ / 7.0;
-    float evx = kvx * cos(fX + phX);
-    float evy = kvy * cos(fY + phY) - 1.346;
-    float evz = kvz * cos(fZ + phZ);
-    float evlen = max(length(vec3(evx, evy, evz)), 1e-4);
-    vec3 evN = vec3(evx, evy, evz) / evlen;
-    float ea = 0.60 * min(1.0, evlen / 10.0);
-    float rFlightEnd = (11.0 + breathAmp * (3.4 * sin(0.85 * 9.0 + 0.7) + 1.7 * sin(1.65 * 9.0)));
+    // Swarm Base Path Center C(t)
+    vec3 C = vec3(
+        swX * sin(fX * te + phX),
+        swY * sin(fY * te + phY) + 2.5 * cos(0.35 * te),
+        swZ * cos(fZ * te + phZ)
+    );
 
-    // Snap-turn pulse: sharp linear rise/fall window centered on turnT
-    float tRise = clamp((elapsed - (turnT - 0.45)) / 0.45, 0.0, 1.0);
-    float tFall = clamp((elapsed - turnT) / 0.45, 0.0, 1.0);
-    float turnPulse = tRise * (1.0 - tFall);
+    // Analytic Velocity / Tangent Vector along Path
+    vec3 V = vec3(
+        swX * fX * cos(fX * te + phX),
+        swY * fY * cos(fY * te + phY) - 0.88 * sin(0.35 * te),
+        -swZ * fZ * sin(fZ * te + phZ)
+    );
+    float speed = max(0.001, length(V));
+    vec3 t_dir = V / speed;
 
-    // Split-and-merge envelope: 1.2s full-separation plateau around splitT
-    float sRise = clamp((elapsed - (splitT - 1.0)) / 0.4, 0.0, 1.0);
-    float sFall = clamp((elapsed - (splitT + 0.6)) / 0.4, 0.0, 1.0);
-    float splitEnv = sRise * (1.0 - sFall);
+    // Smooth Orthogonal Normal & Binormal
+    float roll = (0.50 * te + phX * 0.5) * turnDir;
+    float pitch = 0.30 * te + phY * 0.5;
+    vec3 n_raw = vec3(cos(roll) * (1.0 - t_dir.y * t_dir.y * 0.5), sin(pitch) * 0.7, -sin(roll));
+    vec3 un_norm = normalize(n_raw);
+    vec3 binorm = cross(t_dir, un_norm);
 
-    // Shared flock center path + analytic streaming direction
-    vec3 C;
-    vec3 vDir;
-    float churn;
-    float blobR;
-    float strA;
-    if (elapsed < T12) {
-        float u = max(0.0, (elapsed - t1) / t2);
-        C = vec3(
-            swX * sin(u * fX + phX),
-            swY * sin(u * fY + phY) + 3.0 * sin(u * 3.14159265),
-            swZ * sin(u * fZ + phZ));
-        // Whip jinks: higher-frequency lobes on the flight path. The sin(pi*u)
-        // envelope zeroes them exactly at take-off and flight-end so the
-        // settle/landing end-constants stay valid.
-        float jk = jinkAmp * sin(u * 3.14159265);
-        C += vec3(
-            jk * sin(u * jinkFreq + jinkPh),
-            jk * 0.6 * sin(u * jinkFreq * 0.83 + jinkPh + 1.7),
-            jk * cos(u * jinkFreq * 0.91 + jinkPh + 3.1));
-        churn = 1.0;
-        // Breathing flock volume: two superposed pulses swell and contract the
-        // whole cloud organically through the flight window.
-        blobR = 11.0 + breathAmp * (3.4 * sin(0.85 * elapsed + 0.7) + 1.7 * sin(1.65 * elapsed));
-        vec3 dv = vec3(
-            kvx * cos(u * fX + phX),
-            kvy * cos(u * fY + phY) + 1.346 * cos(u * 3.14159265),
-            kvz * cos(u * fZ + phZ));
-        vDir = normalize(dv + vec3(1e-6));
-        strA = 0.60 * min(1.0, length(dv) / 10.0);
-        strA *= 1.0 + 0.55 * turnPulse;   // shear harder through snap turns
-    } else if (elapsed < T123) {
-        float s0 = (elapsed - T12) / t3;
-        float s = s0 * s0 * (3.0 - 2.0 * s0);
-        C = vec3(endCx, endCy, endCz) * (1.0 - 0.75 * s) + vec3(0.0, 1.5 * s, 0.0);
-        churn = 1.0 - 0.7 * s;
-        blobR = rFlightEnd * (1.0 - 0.55 * s);
-        vDir = evN;
-        strA = ea * (1.0 - 0.75 * s);
-    } else {
-        float tau4 = elapsed - T123;
-        churn = 0.3 * (1.0 - min(1.0, tau4 / t4));
-        float sq = min(1.0, tau4 / 1.5); sq = sq * sq * (3.0 - 2.0 * sq);
-        vec3 hover = vec3(
-            1.6 * sin(te * 1.05 + ph1),
-            1.0 + sin(te * 0.83 + ph2),
-            1.2 * cos(te * 0.95 + ph3));
-        C = vec3(setCx, setCy, setCz) + (hover - vec3(setCx, setCy, setCz)) * sq;
-        blobR = rFlightEnd * 0.45;
-        vDir = evN;
-        strA = ea * 0.25 * (1.0 - min(1.0, tau4 / t4));
-    }
+    // 2 Distinct Murmuration Pods
+    float podSide = (floor(mod(i, 2.0)) == 0.0) ? 1.0 : -1.0;
 
-    // Flock slot: center-weighted point inside the blob volume
-    float slotTh = ph1;
-    float cosPhi = 2.0 * p2h - 1.0;
-    float sinPhi = sqrt(max(0.0, 1.0 - cosPhi * cosPhi));
-    float slotMag = sqrt(p3h);
+    // Smooth Mid-Flight Merge & Re-separation Bell Curve
+    float mergeCenter = (mergeTime > 0.0) ? mergeTime : 6.8;
+    float uM = (elapsed - mergeCenter) / 1.6;
+    float mergeEnvelope = exp(-uM * uM);
 
-    // Directional lobes: asymmetric bulges/folds defeat any sphere silhouette
-    float lobe = 1.0
-        + 0.30 * sin(2.2 * slotTh + 1.8 * cosPhi + 0.45 * te)
-        + 0.16 * cos(3.3 * slotTh - 2.4 * cosPhi + 0.62 * te);
+    // Flocking pod separation: contracts smoothly to 0 during merge, expands during independent flight
+    float independentSep = (7.5 + 3.0 * breathAmp) * (1.0 - mergeEnvelope);
+    float flankAngle = 0.85 * te * turnDir + podAngle;
 
-    vec3 slot = vec3(
-        slotMag * sinPhi * cos(slotTh),
-        slotMag * cosPhi * 0.72,
-        slotMag * sinPhi * sin(slotTh)) * (blobR * lobe);
+    vec3 podOffset = (un_norm * cos(flankAngle) + binorm * sin(flankAngle)) * (podSide * independentSep);
 
-    // Sub-swarms: six overlapping clumps wandering semi-independently
-    float swId = floor(p5h * 6.0);
-    float swScale = blobR / 11.0;
-    float swAmp = (4.5 + 3.0 * p1h) * swScale;
-    vec3 swarmO = vec3(
-        sin(0.71 * swId + 0.50 * te + p5h * 6.28),
-        0.7 * sin(1.13 * swId + 0.38 * te + p2h * 6.28),
-        0.8 * cos(0.87 * swId + 0.45 * te + p3h * 6.28)) * swAmp;
+    // Dynamic 3D Stretching & Concentration
+    float speedFactor = min(1.0, speed / 14.0);
+    float stretchLongitudinal = (0.9 + 2.0 * speedFactor * breathAmp) * (1.0 - 0.30 * mergeEnvelope);
+    float blobRadiusScale = (1.0 + 0.50 * mergeEnvelope);
+    float stretchLateral = blobRadiusScale / sqrt(max(0.4, stretchLongitudinal));
 
-    // Velocity-aligned streaming: stretch along travel, trail behind
-    float along = dot(slot, vDir);
-    vec3 perp = slot - vDir * along;
-    float back = max(0.0, -along);
-    float shell = max(0.0, slotMag - 0.9) / 0.1;
-    float trail = (back * 1.7 + shell * 2.6) * strA * (0.55 + 0.45 * p4h) * swScale;
-    vec3 streamed = perp * 0.80 + vDir * (along * (1.0 + strA) - trail);
+    // True 3D Solid Volumetric Dispersion
+    float baseRadius = pow(max(0.0001, p1h), 0.3333333) * (4.8 + 2.4 * p4h) * stretchLateral;
+    float theta0 = p2h * 6.283185;
+    float cosPhi0 = (p3h - 0.5) * 2.0;
+    float sinPhi0 = sqrt(max(0.0, 1.0 - cosPhi0 * cosPhi0));
 
-    // Churn field keyed on slot position + wingbeat flutter + boil turbulence
-    vec3 F = churnMult * vec3(
-        5.6 * sin(0.40 * slot.y + 1.25 * te + ph1),
-        4.4 * sin(0.48 * slot.x - 1.05 * te + ph2),
-        4.8 * cos(0.36 * slot.x + 0.30 * slot.y + 0.90 * te + ph3));
-    float wf = 8.5 + 4.0 * p4h;
-    float fl = sin(wf * te + ph1);
-    F += flutterMult * vec3(0.5 * fl, 1.3 * fl, 0.4 * sin(wf * 0.87 * te + ph2));
-    // Boil turbulence: incommensurate high-frequency layer keyed on the slot,
-    // giving individual birds chaotic interior jitter (the "living" look).
-    F += boilAmp * vec3(
-        sin(boilFreq * te + 1.9 * slot.y + ph2),
-        0.8 * sin(boilFreq * 0.87 * te - 1.6 * slot.x + ph3),
-        cos(boilFreq * 0.71 * te + 1.3 * (slot.x + slot.y) + ph1));
-    F *= churn;
+    // Fluid-like 3D Convolution: Bounded phase integration
+    float swirlAngle = (2.2 + 1.2 * p1h) * turnDir * te + p2h * 6.28318 + 0.12 * home.x;
+    float thetaConvolute = theta0 + swirlAngle;
 
-    vec3 P = C + swarmO + streamed + F;
+    float morphX = 1.0 + 0.25 * sin(1.8 * te + p3h * 3.14159);
+    float morphY = 1.0 + 0.25 * cos(2.2 * te + p1h * 3.14159);
 
-    // Snap-turn bank impulse: whip the whole flock sideways mid-flight
-    if (turnPulse > 0.0) {
-        vec2 bk = vec2(vDir.y, -vDir.x);
-        float bkN = sqrt(dot(bk, bk) + 2.5e-3);
-        float bankMag = turnDir * 8.0 * turnPulse;
-        P.xy += (bk / bkN) * bankMag;
-    }
+    float localTan = (baseRadius * sinPhi0 * cos(thetaConvolute)) * stretchLongitudinal;
+    float localNorm = (baseRadius * sinPhi0 * sin(thetaConvolute) * morphX);
+    float localBinorm = (baseRadius * cosPhi0 * morphY);
 
-    // Split & merge: tear the six sub-swarms into two lobes along a random
-    // horizontal axis, fly them apart, then pour them back together
-    if (splitEnv > 0.0) {
-        float sideSign = (swId < 3.0) ? 1.0 : -1.0;
-        float sepMag = sideSign * 7.5 * splitEnv * swScale;
-        P.x += cos(splitAng) * sepMag;
-        P.z += sin(splitAng) * sepMag;
-    }
+    // Shearing & Internal Eddy Waves
+    float shearWave = sin(0.18 * (home.x + C.x) - 2.2 * te + podSide * 1.5) * (1.6 * jinkAmp);
+    vec3 churn = vec3(
+        sin(2.4 * te + p1h * 6.28318 + home.x * 0.08) * (1.2 * jinkAmp),
+        cos(2.8 * te + p2h * 6.28318 + home.y * 0.08) * (0.9 * jinkAmp),
+        sin(2.1 * te + p3h * 6.28318 + home.z * 0.08) * (1.2 * jinkAmp)
+    );
 
-    // Darting scouts: rare individuals streak out of the blob and snap back
-    if (p6h > 0.93 && churn > 0.01 && scoutAmp > 0.0) {
-        float dartRate = (1.55 + 1.3 * p1h) * 3.14159265;
-        float dw = sin(te * dartRate + p6h * 40.0 + ph2);
-        if (dw > 0.0) {
-            dw *= dw; dw *= dw; dw *= dw;
-            float slotLen = max(length(slot), 1e-4);
-            float dartMag = scoutAmp * (4.0 + 2.5 * p3h) * dw * churn;
-            P += (slot / slotLen) * dartMag;
-        }
-    }
+    vec3 P = C + podOffset + t_dir * localTan + un_norm * localNorm + binorm * (localBinorm + shearWave) + churn + vec3(0.0, hop, 0.0);
 
-    // Predator dodges: up to three sweeping exclusion cavities shape-shift
-    // the flock at per-blast randomized times with a random strike radius
-    // and parting force
-    if (elapsed > 2.0 && elapsed < 9.0) {
-        float wA = clamp((elapsed - (d1T - 1.1)) / 0.4, 0.0, 1.0);
-        wA *= 1.0 - clamp((elapsed - (d1T + 1.1)) / 0.4, 0.0, 1.0);
-        float wB = clamp((elapsed - (d2T - 1.1)) / 0.4, 0.0, 1.0);
-        wB *= 1.0 - clamp((elapsed - (d2T + 1.1)) / 0.4, 0.0, 1.0);
-        float wC = clamp((elapsed - (d3T - 1.1)) / 0.4, 0.0, 1.0);
-        wC *= 1.0 - clamp((elapsed - (d3T + 1.1)) / 0.4, 0.0, 1.0);
-        float wEnv = max(wA, max(wB, wC));
-        float dodgeIdx = (wC >= wA && wC >= wB) ? 2.0 : ((wB >= wA) ? 1.0 : 0.0);
-        if (wEnv > 0.001) {
-            // The predator rides the flock's own flight path with a lateral
-            // weave (phase-offset per attack), so the dodge is guaranteed to
-            // cut through the blob.
-            float qt = min(8.9, elapsed * 0.92 + 1.1);
-            float qU = max(0.0, (qt - 2.0) / 7.0);
-            float wo = dodgeIdx * 2.094;
-            vec3 Q = vec3(
-                swX * sin(qU * fX + phX) + 5.0 * sin(1.7 * elapsed + 1.0 + wo),
-                swY * sin(qU * fY + phY) + 3.0 * sin(qU * 3.14159265) + 2.0 * sin(1.3 * elapsed + wo),
-                swZ * sin(qU * fZ + phZ) + 4.0 * sin(1.6 * elapsed + 2.0 + wo));
-            // Part the flock around the predator: slide particles sideways
-            // relative to the flow direction instead of pushing them radially.
-            // A radial push compresses displaced particles into a visible rim
-            // ring; tangential parting preserves radial density and reads as
-            // the flock cleaving around a falcon. Magnitude fades to zero at
-            // the cavity rim and on the parting mid-plane, so nothing snaps.
-            vec3 dvv = P - Q;
-            float d = length(dvv);
-            float rad = dodgeRad;
-            if (d < rad) {
-                float x = d / rad;
-                float rise = min(1.0, x / 0.5); rise = rise * rise * (3.0 - 2.0 * rise);
-                float fall = clamp((x - 0.6) / 0.4, 0.0, 1.0); fall = fall * fall * (3.0 - 2.0 * fall);
-                // In-plane perpendicular to the flock's travel direction,
-                // smoothly attenuated so near-vertical turnarounds fade the
-                // parting out instead of switching it off abruptly.
-                vec2 pv = vec2(vDir.y, -vDir.x);
-                pv /= sqrt(dot(pv, pv) + 2.5e-3);
-                float sideDist = dot(dvv.xy, pv);
-                float part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * dodgeStr * wEnv * (0.75 + 0.5 * p4h);
-                P += vec3(pv * part, 0.0);
-            }
-        }
-    }
-
-    // Landing blend to home, then take-off blend from home
-    P.y += hop;
-    if (elapsed >= T123) {
-        float tau4 = elapsed - T123;
-        float stg = p2h * 0.5;
-        float q = clamp((tau4 - stg) / (t4 - stg), 0.0, 1.0);
+    // Precision Landing Blend (Phase 4: 12.0 -> 14.0s)
+    if (elapsed >= (t1 + t2 + t3)) {
+        float tau4 = elapsed - (t1 + t2 + t3);
+        float st = p2h * 0.35;
+        float q = clamp((tau4 - st) / (t4 - st), 0.0, 1.0);
         float e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
         P = mix(P, home, e4);
     }
+
     if (lb < 1.0) P = mix(home, P, lb);
     return P;
 }
@@ -1066,7 +915,8 @@ void main() {
                     uMTurnT, uMTurnDir, uMSplitT, uMSplitAng,
                     uMDodge1T, uMDodge2T, uMDodge3T, uMDodgeRad, uMDodgeStr,
                     uMBoilAmp, uMBoilFreq, uMChurnMult, uMFlutterMult,
-                    uMJinkAmp, uMJinkFreq, uMJinkPh, uMBreathAmp, uMScoutAmp);
+                    uMJinkAmp, uMJinkFreq, uMJinkPh, uMBreathAmp, uMScoutAmp,
+                    uMMergeTime, uMPodAngle);
             } else {
                 livePos = evalExplosionGPU(homePosition, aRandomDir, aRandomSpeed, uMaxDist, uExpDuration, uDriftDuration, uContractionDuration, uExplosionElapsed);
             }
@@ -1275,8 +1125,8 @@ const state = {
             return exp + vortex + equil + con; // 15.0s
         }
         if (style === 2) {
-            // 4-Phase Breeze: Straight Fall (1.0s) + Ground Pause (2.0s) + Forward Breeze (3.6s) + Reverse Breeze (3.6s) + Elevation (1.6s) = 11.8s
-            return 11.8;
+            // 4-Phase Breeze: Foliage Sway (2.5s) + Surge Dispersal (4.5s) + Alignment (2.8s) + Landing (2.2s) = 12.0s
+            return 12.0;
         }
         if (style === 3) {
             // Clean Continuous Surf Wave (7.5s)
@@ -1540,12 +1390,15 @@ const uniforms = {
     uMJinkPh: { value: 0.0 },
     uMBreathAmp: { value: 1.0 },
     uMScoutAmp: { value: 0.0 },
+    uMMergeTime: { value: 6.8 },
+    uMPodAngle: { value: 0.0 },
     uKnotScale: { value: 11.0 },
     uRipples: { value: Array.from({ length: RIPPLE_COUNT }, () => new Vector4(0, 0, 0, 0)) },
     uTapRing: { value: new Vector4(0, 0, 0, 0) }
 };
 
 let breezeSeqCounter = 0;
+let murmurationSeqCounter = 0;
 let statusFpsEl = null;
 let fpsFrames = 0;
 let fpsLastUpdate = 0;
@@ -1665,7 +1518,7 @@ function scheduleContractionRumble(duration) {
 
         const gain = audioCtx.createGain();
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.16, now + Math.min(0.25, len * 0.3));
+        gain.gain.exponentialRampToValueAtTime(0.24, now + Math.min(0.25, len * 0.3));
         gain.gain.exponentialRampToValueAtTime(0.0001, now + len);
 
         osc.connect(gain);
@@ -2792,11 +2645,17 @@ function randomizeExplosionVectors() {
     const swirlModes = [0.0, 0.85, 1.45, 0.35, 0.0, 1.20];
     const baseSwirl = swirlModes[breezeSeqCounter % swirlModes.length];
     const breezeSwirl = (baseSwirl === 0.0) ? 0.0 : baseSwirl * (0.85 + Math.random() * 0.30);
+    const turbAmp = 0.85 + 0.50 * breezeIntensity + 0.40 * breezeSwirl + (Math.random() - 0.5) * 0.25;
+    const billowFreq = 0.18 + Math.random() * 0.10;
+    const windTilt = (Math.random() - 0.5) * 0.20;
 
     activeBreezeConfig = {
         blowDir: dirX,
         intensity: breezeIntensity,
         swirl: breezeSwirl,
+        turbAmp: turbAmp,
+        billowFreq: billowFreq,
+        windTilt: windTilt,
         windAngleY: (Math.random() - 0.5) * 0.22,
         windAngleZ: (Math.random() - 0.5) * 0.12,
         strengthMult: breezeIntensity,
@@ -2813,7 +2672,6 @@ function randomizeExplosionVectors() {
         billowAmp1: 7.5 + Math.random() * 3.0,
         billowAmp2: 3.0 + Math.random() * 2.0,
         depthAmp: 13.0 + Math.random() * 4.5,
-        turbAmp: 3.0 + Math.random() * 1.8,
         shearMult: 0.22 + Math.random() * 0.18
     };
     physics.breeze = activeBreezeConfig;
@@ -2983,71 +2841,46 @@ function triggerExplosion(force = false) {
     state.afterglowStartTime = null;
     fallbackMaxTravelSq = 0;
 
-    // Procedural randomized murmuration flight plan + event schedule (style 5):
-    // every blast flies a different choreography — sweep, whip jinks, a snap
-    // turn, an optional split-and-merge, 2-3 predator strikes, and per-blast
-    // chaos levels. The fields ride state.pattern to the shader uniforms, to
-    // the worker via the 'randomize' message, and to the CPU fallback.
+    // Procedural randomized murmuration 3D blob flight plan (style 5):
+    // cycles through 5 distinct choreography modes with per-blast organic parameter jitter,
+    // randomized mid-flight merge windows, independent flanking angles, launch directions,
+    // and twist rotations.
     if (state.motionStyle === 5) {
-        // Event placement avoids pathological stacking: the snap turn never
-        // lands inside the split's +/-1.4s neighborhood, and predator strike
-        // centers keep >=1.35s gaps so their parting cavities don't pile up.
-        const mSplitT = Math.random() < 0.55 ? (4.3 + Math.random() * 2.0) : 99.0;
-        let mTurnT = mSplitT < 90.0 ? 99.0 : (3.3 + Math.random() * 2.6);
-        if (mSplitT < 90.0) {
-            // Split active: try to place the turn outside its neighborhood.
-            const avoidLo = mSplitT - 1.4, avoidHi = mSplitT + 1.4;
-            let tt = 3.3 + Math.random() * 2.6;   // [3.3, 5.9]
-            if (tt > avoidLo && tt < avoidHi) {
-                tt = tt < mSplitT
-                    ? Math.max(3.3, avoidLo - 0.8 * Math.random())
-                    : Math.min(5.9, avoidHi + 0.8 * Math.random());
-                if (tt > avoidLo && tt < avoidHi) tt = 99.0;   // drop rather than stack
-            }
-            mTurnT = tt;
-        }
-        const d1 = 3.25 + Math.random() * 0.55;
-        const d2 = d1 + 1.35 + Math.random() * 0.7;
-        let d3 = 99.0;
-        if (Math.random() < 0.45) {
-            const cand = d2 + 1.35 + Math.random() * 0.5;
-            d3 = cand <= 6.95 ? cand : 99.0;
-        }
+        murmurationSeqCounter++;
+        const choreographyModes = [
+            // Mode 0: Celestial Double-Flock Weave (Wide horizontal swoop, mid-flight fusion)
+            { sweepX: 28.0, sweepY: 6.5, sweepZ: 15.0, freqX: 0.52, freqY: 0.95, freqZ: 0.48, breathAmp: 1.2, jinkAmp: 1.1, launchDir: 1.0, turnDir: 1.0, mergeTime: 6.8 },
+            // Mode 1: Horizontal Aurora Wave (Massive horizontal span, undulating wave ripples)
+            { sweepX: 32.0, sweepY: 4.8, sweepZ: 11.0, freqX: 0.42, freqY: 0.82, freqZ: 0.38, breathAmp: 1.0, jinkAmp: 1.3, launchDir: -1.0, turnDir: -1.0, mergeTime: 6.4 },
+            // Mode 2: Deep Spatial Corkscrew Swarm (Massive 3D depth reach, diving into camera)
+            { sweepX: 22.0, sweepY: 7.5, sweepZ: 20.0, freqX: 0.58, freqY: 1.05, freqZ: 0.52, breathAmp: 1.35, jinkAmp: 1.3, launchDir: 1.0, turnDir: -1.0, mergeTime: 7.0 },
+            // Mode 3: Counter-Rotating Spiral Duel (Interlocking dynamic figure-8 oscillation)
+            { sweepX: 26.0, sweepY: 6.8, sweepZ: 14.0, freqX: 0.48, freqY: 0.90, freqZ: 0.44, breathAmp: 1.15, jinkAmp: 1.2, launchDir: -1.0, turnDir: 1.0, mergeTime: 6.6 },
+            // Mode 4: Ascending S-Curve Serpent (High vertical undulating sweep, flowing rhythm)
+            { sweepX: 23.0, sweepY: 8.5, sweepZ: 13.0, freqX: 0.40, freqY: 0.75, freqZ: 0.40, breathAmp: 1.30, jinkAmp: 1.1, launchDir: 1.0, turnDir: 1.0, mergeTime: 7.2 }
+        ];
+        const mode = choreographyModes[murmurationSeqCounter % choreographyModes.length];
+        const jitter = () => (Math.random() - 0.5) * 0.20;
+
         state.pattern = {
             ...state.pattern,
-            mSweepX: 16.0 + Math.random() * 14.0,
-            mSweepY: 3.5 + Math.random() * 4.0,
-            mSweepZ: 8.0 + Math.random() * 8.0,
-            mFreqX: 2.8 + Math.random() * 1.2,
-            mFreqY: 4.6 + Math.random() * 1.4,
-            mFreqZ: 2.2 + Math.random() * 1.2,
+            mSweepX: mode.sweepX * (1.0 + jitter()),
+            mSweepY: mode.sweepY * (1.0 + jitter()),
+            mSweepZ: mode.sweepZ * (1.0 + jitter()),
+            mFreqX: mode.freqX * (1.0 + jitter()),
+            mFreqY: mode.freqY * (1.0 + jitter()),
+            mFreqZ: mode.freqZ * (1.0 + jitter()),
             mPhX: Math.random() * 6.283,
             mPhY: Math.random() * 6.283,
             mPhZ: Math.random() * 6.283,
-            mLaunchDir: Math.random() < 0.5 ? 1.0 : -1.0,
-            // Snap turn: sharp lateral whiplash of the whole flock (99.0 = off)
-            mTurnT,
-            mTurnDir: Math.random() < 0.5 ? 1.0 : -1.0,
-            // Split & merge: 55% of blasts tear into two lobes mid-flight
-            mSplitT,
-            mSplitAng: Math.random() * 6.283,
-            // Predator strikes: two guaranteed attacks plus a 45% third one
-            mDodge1T: d1,
-            mDodge2T: d2,
-            mDodge3T: d3,
-            mDodgeRad: 6.5 + Math.random() * 3.0,
-            mDodgeStr: 0.85 + Math.random() * 0.6,
-            // Interior chaos levels
-            mBoilAmp: 1.4 + Math.random() * 0.8,
-            mBoilFreq: 11.0 + Math.random() * 3.0,
-            mChurnMult: 1.2 + Math.random() * 0.6,
-            mFlutterMult: 1.25 + Math.random() * 0.6,
-            mJinkAmp: 2.5 + Math.random() * 1.7,
-            mJinkFreq: 4.5 + Math.random() * 2.5,
-            mJinkPh: Math.random() * 6.283,
-            mBreathAmp: 1.25 + Math.random() * 0.65,
-            // Darting-scout burst strength (0 disables scouts entirely)
-            mScoutAmp: 0.85 + Math.random() * 0.45
+            mLaunchDir: (murmurationSeqCounter % 2 === 1) ? mode.launchDir : -mode.launchDir,
+            mTurnDir: (Math.random() < 0.5) ? mode.turnDir : -mode.turnDir,
+            mBreathAmp: mode.breathAmp * (1.0 + jitter()),
+            mJinkAmp: mode.jinkAmp * (1.0 + jitter()),
+            mMergeTime: mode.mergeTime + (Math.random() - 0.5) * 1.0,
+            mPodAngle: Math.random() * 6.283,
+            mBoilAmp: 0.30 + Math.random() * 0.20,
+            mModeIndex: murmurationSeqCounter % choreographyModes.length
         };
     }
 
@@ -4580,6 +4413,8 @@ function animate() {
         uniforms.uMJinkPh.value = (state.pattern && state.pattern.mJinkPh != null) ? state.pattern.mJinkPh : 0.0;
         uniforms.uMBreathAmp.value = (state.pattern && state.pattern.mBreathAmp != null) ? state.pattern.mBreathAmp : 1.0;
         uniforms.uMScoutAmp.value = (state.pattern && state.pattern.mScoutAmp != null) ? state.pattern.mScoutAmp : 0.0;
+        uniforms.uMMergeTime.value = (state.pattern && state.pattern.mMergeTime != null) ? state.pattern.mMergeTime : 6.8;
+        uniforms.uMPodAngle.value = (state.pattern && state.pattern.mPodAngle != null) ? state.pattern.mPodAngle : 0.0;
         // Torus knot auto-calibration: scale the trefoil from the live
         // camera frustum so it stays centered and covers over half the stage.
         {

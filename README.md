@@ -32,8 +32,8 @@ The project is a **vanilla JS/HTML** app (no component framework) built around a
   - **🌪️ Tornado**: Procedural 4-phase swirling vortex funnel with dynamic spin velocity, crown flare, and column meander.
   - **💨 Breeze**: Boundary-layer fluid dynamics with Kelvin-Helmholtz rolling vortices, randomized left/right wind direction, and variable gust intensities.
   - **⚡ Kinetic**: Continuous 3D trochoidal ocean surf wave sweeping across the sculpture.
-  - **⭕ Torus**: Gravity forges your message into a flowing trefoil torus knot of light — revolving, shimmering, auto-scaled to the stage — then rains back home.
-  - **🐦 Murmuration**: The sculpture takes flight as a living starling flock — every blast flies its own randomized choreography: whip jinks, snap turns, split-and-merge waves, 2–3 falcon strikes with startle-spark bursts, boil turbulence, darting scouts, and a staggered landing.
+  - **⭕ Torus**: Magnetic Tokamak Fusion Reactor & Solar Plasma Donut — magnetic pinch compression, 3-strand helical coil confinement ($q = 4.2$), pulsating coronal solar flares with Lorentz loops, 360° turntable yaw rotation, and cold fusion re-crystallization landing.
+  - **🐦 Murmuration**: 3D diffused volumetric starling blobs — dynamic aerodynamic stretching along flight velocity, 2 distinct independent flanking pods that converge and merge mid-flight into one giant super-blob, subsequent re-separation, fluid-like 3D convolution, and per-simulation organic random elements.
 - **🎨 Dynamic Themes & Custom Fonts**:
   - 5 rich color themes (**Ember**, **Arctic**, **Toxic**, **Neon**, **Sakura**) with vertical spatial gradients, hover glows, and visual gradient swatches.
   - Google Fonts integration (**Outfit**, **Fira Code**, **Pacifico**, **Playfair Display**) with automatic preloading and canvas rasterization.

@@ -133,160 +133,124 @@ export function evaluateTornadoParticle(i, hx, hy, hz, u, fx, fz, cd, elapsed, p
     }
 }
 
-function computeBreezePlume(tWind, curElapsed, lambda, gX, gY, gZ, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out) {
-    // 1. Progressive Gust Front with randomized localized wave arrival
-    const upwindPos = (gX * gx) + 25.0;
-    const randOffset = (((i * 53.17) % 100.0) / 100.0) * 0.30;
-    const gustDelay = Math.min(0.75, Math.max(0.0, upwindPos * 0.015 + randOffset));
-    const localT = Math.max(0.0, tWind - gustDelay);
-    const pLocal = Math.min(1.0, localT / (t2 - gustDelay + 1e-4));
-
-    if (localT <= 0.0) {
-        if (out) { out.x = gX; out.y = gY; out.z = gZ; return out; }
-        return { x: gX, y: gY, z: gZ };
-    }
-
-    // -- Option 1: 3D Spiral Ribbons & Braided Filaments --
-    // 3 distinct interwoven silk ribbons (phases 0, 2pi/3, 4pi/3)
-    const ribbonId = i % 3.0;
-    const ribbonPhase = ribbonId * 2.094395; // 2*PI/3
-    const braidWavelength = 0.15;
-    const braidSpeed = 2.8;
-    const braidAngle = braidWavelength * (gX * gx) - braidSpeed * curElapsed + ribbonPhase;
-    const braidRadius = (1.8 + 3.8 * buoyancy) * Math.min(1.0, localT / 0.8) * intensity;
-    const braidY = braidRadius * Math.sin(braidAngle);
-    const braidZ = braidRadius * Math.cos(braidAngle);
-    const braidX = gx * (braidRadius * 0.55 * Math.sin(braidAngle * 0.5));
-
-    // -- Option 6: Floating Leaf Flutter & Pendulum Gliding --
-    // Pendulum rocking phase (simulates leaves/petals rocking back & forth as they catch air pockets)
-    const leafRockFreq = 3.6 + (((i * 41.73) % 100.0) / 100.0) * 2.0;
-    const leafPhase = (((i * 67.89) % 100.0) / 100.0) * 6.28318;
-    const pendulumAngle = leafRockFreq * curElapsed + leafPhase;
-
-    // Rocking side-to-side cross-glide and buoyant apex lift
-    const leafGlideX = gx * (Math.sin(pendulumAngle) * (0.80 + 1.10 * windSpeedMult)) * intensity;
-    const leafGlideY = Math.abs(Math.cos(pendulumAngle)) * (0.95 + 1.45 * buoyancy) * intensity;
-    const leafGlideZ = Math.sin(pendulumAngle * 0.75 + leafPhase) * (1.30 + 1.80 * windSpeedMult) * intensity;
-
-    // High-frequency fluttering edge wobble
-    const leafWobble = Math.sin(9.5 * curElapsed + i * 0.35) * 0.40 * intensity * Math.min(1.0, localT);
-
-    // -- Swirl / Whirlwind Vortex Dynamics (Randomized from 0.0 to 1.4+) --
-    const swirlSign = (((i * 29.17) % 10.0) > 5.0) ? 1.0 : -1.0;
-    const swirlAngle = 0.12 * (gX * gx) - 3.8 * curElapsed * swirlSign + (((i * 31.41) % 100.0) / 100.0) * 6.28318;
-    const swirlEnvelope = Math.sin(Math.PI * pLocal);
-    const swirlRadius = (3.2 + 6.0 * buoyancy) * (swirl || 0.0) * intensity * swirlEnvelope;
-    const swirlY = swirlRadius * Math.sin(swirlAngle);
-    const swirlZ = swirlRadius * Math.cos(swirlAngle);
-    const swirlX = gx * (swirlRadius * 0.35 * Math.cos(swirlAngle * 2.0));
-
-    if (lambda > 0.82) {
-        // -- Strata C: Ground Skittering Leaves (Tumbling along floor) --
-        const groundSpeed = (3.2 + 6.0 * windSpeedMult) * intensity;
-        const groundDist = groundSpeed * (localT * 0.85 + 0.08 * localT * localT);
-        const groundSkip = (0.35 * Math.abs(Math.sin(pendulumAngle)) + 0.10 * Math.sin(curElapsed * 10.0 + i)) * Math.min(1.0, localT);
-        const groundZDrift = (0.75 * Math.sin(pendulumAngle * 0.6) + leafWobble + swirlZ * 0.25) * Math.min(1.0, localT);
-
-        const rx = gX + gx * groundDist + leafGlideX * 0.4 + swirlX * 0.25;
-        const ry = Math.max(gY, gY + groundSkip);
-        const rz = gZ + groundZDrift;
-        if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
-        return { x: rx, y: ry, z: rz };
-    } else {
-        // -- Strata A & B: Airborne Braided Ribbon Streams + Floating Leaf Gliding + Swirl Vortex --
-        const indLiftStart = liftStart * 0.50;
-        const liftProg = Math.min(1.0, Math.max(0.0, (pLocal - indLiftStart) / (1.0 - indLiftStart + 1e-4)));
-        const eLift = liftProg * liftProg * (3.0 - 2.0 * liftProg);
-
-        // Dynamic aerodynamic forward drift along streamlines
-        const randSpeedVariation = (((i * 83.11) % 100.0) / 100.0) * 2.4 - 1.2;
-        const baseSpeed = Math.max(2.4, 4.2 + 8.5 * windSpeedMult + 3.8 * buoyancy + randSpeedVariation);
-        const xDispersal = (localT * baseSpeed + 0.45 * localT * localT * (0.4 + 0.6 * buoyancy)) * intensity;
-
-        // Harmonic plume altitude
-        const randHeight = (((i * 93.41) % 100.0) / 100.0) * 2.8;
-        const baseLiftHeight = (3.0 + 7.5 * buoyancy + randHeight) * intensity;
-        const totalLift = Math.max(0.0, baseLiftHeight + braidY + leafGlideY + leafWobble);
-
-        const rx = gX + gx * xDispersal + braidX + leafGlideX + eLift * swirlX;
-        const ry = Math.max(gY, gY + eLift * (totalLift + swirlY));
-        const rz = gZ + eLift * (braidZ + leafGlideZ + leafWobble + swirlZ);
-
-        if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
-        return { x: rx, y: ry, z: rz };
-    }
-}
-
 export function evaluateBreezeParticle(i, hx, hy, hz, cd, elapsed, breezeConfig, out) {
     const b = breezeConfig || {};
     const gx = (b.blowDir != null) ? b.blowDir : 1.0;
     const intensity = (b.intensity != null) ? b.intensity : 1.0;
-    const swirl = (b.swirl != null) ? b.swirl : 0.0;
+    const turbAmp = (b.turbAmp != null) ? b.turbAmp : (0.85 + 0.45 * intensity);
+    const billowFreq = (b.billowFreq != null) ? b.billowFreq : 0.22;
+    const windTilt = (b.windTilt != null) ? b.windTilt : 0.0;
 
-    const t1 = 1.0;        // Phase 1: Straight Ground Fall (0 -> 1.0s)
-    const tPause = 2.0;    // Ground Rest: 2 seconds on floor (1.0 -> 3.0s)
-    const t2 = 3.6;        // Phase 2: Forward Fuzzy Breeze Lift (3.0 -> 6.6s)
-    const t3 = 3.6;        // Phase 3: Reverse Breeze Flow to Floor (6.6 -> 10.2s)
-    const t4 = 1.6;        // Phase 4: Reverse Drop Elevation Home (10.2 -> 11.8s)
+    const t1 = 2.5;  // Phase 1: Gentle Rustle & Elastic Foliage Sway (0.0 -> 2.5s)
+    const t2 = 4.5;  // Phase 2: Augmented Wind Surge & Multi-Tier Dispersal (2.5 -> 7.0s)
+    const t3 = 2.8;  // Phase 3: Calming Tailwind & Alignment (7.0 -> 9.8s)
+    const t4 = 2.2;  // Phase 4: Harmonic Parachute Landing (9.8 -> 12.0s)
 
-    const lambda = ((i * 37.119) % 100.0) / 100.0;
-    const isClash = (lambda < 0.22);
+    const p1h = ((i * 37.119) % 100.0) / 100.0;
+    const p2h = ((i * 61.19) % 100.0) / 100.0;
+    const p3h = ((i * 83.11) % 100.0) / 100.0;
+    const p4h = ((i * 53.17) % 100.0) / 100.0;
 
-    const seedX = ((i * 19.417) % 100.0) - 50.0;
-    const seedZ = ((i * 29.831) % 100.0) - 50.0;
+    const te = elapsed * cd;
 
-    const scatX = isClash ? seedX * 0.05 : 0.0;
-    const scatZ = isClash ? seedZ * 0.04 : 0.0;
-    const yGround = -11.0; // Prominently visible in lower canvas
+    // Phase 1: In-place aero-elastic sway & strictly upward leaf flutter (Py >= hy always)
+    let rampIn = Math.min(1.0, elapsed / 0.6);
+    rampIn = rampIn * rampIn * (3.0 - 2.0 * rampIn);
 
-    const gX = hx + scatX;
-    const gY = yGround + (hy * 0.03);
-    const gZ = hz + scatZ;
+    const cantilever = Math.pow(Math.max(0.0, (hy + 12.0) / 24.0), 1.3);
+    const swayWave = 2.2 * Math.sin(2.8 * te - 0.12 * hx + p1h * 1.5) + 0.8 * Math.sin(5.5 * te + p2h * 3.14159);
+    const sway = cantilever * swayWave * gx * intensity * rampIn;
+    const flutterUp = Math.abs(Math.sin(8.5 * te + p4h * 6.28)) * 0.45 * cantilever * intensity * rampIn;
+    const depthWaft = Math.sin(1.8 * te + p1h * 6.28) * 1.5 * cantilever * intensity * rampIn;
 
-    const windSpeedMult = 0.55 + (((i * 43.71) % 100.0) / 100.0) * 0.90;
-    const buoyancy = 0.40 + (((i * 81.33) % 100.0) / 100.0) * 1.10;
-    const liftStart = Math.pow(((i * 61.19) % 100.0) / 100.0, 1.4) * 0.60;
+    let Px = hx + sway;
+    let Py = hy + flutterUp; // Guaranteed >= hy
+    let Pz = hz + depthWaft;
 
-    if (elapsed < t1) {
-        // -- 1) Phase 1: Straight Vertical Fall & Floor Impact --
-        const p1 = elapsed / t1;
-        const eDrop = p1 * p1;
+    // Phase 2 & 3: Wind surge dispersal (2.5 -> 9.8s) with peeling arrival wave
+    if (elapsed > t1) {
+        const tauDisperse = elapsed - t1;
+        const sweepCoord = (gx > 0.0) ? (hx + 45.0) : (45.0 - hx);
+        const peelDelay = sweepCoord * 0.008 + p2h * 0.35 + p3h * 0.15;
+        const ltSurge = Math.max(0.0, tauDisperse - peelDelay);
+        let pSurge = Math.min(1.0, ltSurge / 1.2);
+        pSurge = pSurge * pSurge * (3.0 - 2.0 * pSurge);
 
-        const pImpact = Math.max(0.0, (p1 - 0.70) / 0.30);
-        const eImpact = pImpact * (2.0 - pImpact);
-        const recoil = (isClash ? 1.6 : 0.5) * Math.sin(Math.PI * pImpact) * (1.0 - pImpact);
+        const surgeActiveDur = t2 + t3;
+        const uFlight = Math.min(1.0, ltSurge / surgeActiveDur);
+        const sDist = (uFlight * (2.0 - uFlight));
+        const flightTimeEnv = Math.sin(Math.min(Math.PI, uFlight * Math.PI));
 
-        const rx = hx + scatX * eImpact;
-        const ry = (1.0 - eDrop) * hy + eDrop * gY + recoil;
-        const rz = hz + scatZ * eImpact;
-        if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
-        return { x: rx, y: ry, z: rz };
-    } else if (elapsed < t1 + tPause) {
-        // -- 1.5) Ground Pause: 2 full seconds resting flat on visible floor --
-        if (out) { out.x = gX; out.y = gY; out.z = gZ; return out; }
-        return { x: gX, y: gY, z: gZ };
-    } else if (elapsed < t1 + tPause + t2) {
-        // -- 2) Phase 2: Forward Fuzzy Breeze Lift --
-        const tWind = elapsed - (t1 + tPause);
-        return computeBreezePlume(tWind, elapsed, lambda, gX, gY, gZ, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out);
-    } else if (elapsed < t1 + tPause + t2 + t3) {
-        // -- 3) Phase 3: Exact Reverse Breeze Flow back to Ground Floor --
-        const p3 = (elapsed - (t1 + tPause + t2)) / t3;
-        const smoothP3 = p3 * p3 * (3.0 - 2.0 * p3);
-        const tWindRev = t2 * (1.0 - smoothP3);
-        return computeBreezePlume(tWindRev, elapsed, lambda, gX, gY, gZ, gx, intensity, swirl, cd, windSpeedMult, buoyancy, liftStart, seedZ, t2, i, out);
-    } else {
-        // -- 4) Phase 4: Reverse Drop (Straight Elevation to Rest) --
-        const p4 = Math.min(1.0, (elapsed - (t1 + tPause + t2 + t3)) / t4);
-        const eRise = p4 * p4 * (3.0 - 2.0 * p4);
+        if (pSurge > 0.0) {
+            const strata = p1h;
+            const rockFreq = 3.2 + p3h * 1.8;
+            const rockAngle = rockFreq * te + p2h * 6.28;
 
-        const rx = (1.0 - eRise) * gX + eRise * hx;
-        const ry = (1.0 - eRise) * gY + eRise * hy;
-        const rz = (1.0 - eRise) * gZ + eRise * hz;
-        if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
-        return { x: rx, y: ry, z: rz };
+            let driftX = 0, driftY = 0, driftZ = 0;
+
+            if (strata < 0.45) {
+                // Highly Turbulent Canopy Streamers (Anti-Blob, Elongated Vortex Ribbons)
+                const speedVar = 0.70 + 0.60 * p3h + 0.30 * Math.sin(0.15 * hx + p1h * 6.28);
+                const maxDist = (30.0 + 10.0 * p2h) * intensity * speedVar;
+                driftX = gx * (maxDist * sDist);
+
+                // Multi-harmonic vertical vortex waves with positive thermal lift
+                const waveY1 = (4.0 + 4.5 * p2h) * Math.sin(billowFreq * (hx + gx * driftX * 0.35) - 2.8 * te + p1h * 6.28);
+                const waveY2 = (1.5 + 1.2 * p4h) * Math.sin(0.35 * hx - 4.2 * te + p3h * 6.28);
+                const baseLift = (6.0 + 8.0 * p3h) * flightTimeEnv;
+                driftY = Math.max(0.0, baseLift + (waveY1 + waveY2) * flightTimeEnv * turbAmp);
+
+                // Broad 3D depth eddy swirling across the camera plane
+                const waveZ1 = (4.0 + 4.5 * p4h) * Math.cos(billowFreq * (hx + gx * driftX * 0.3) - 2.4 * te + p2h * 6.28);
+                const waveZ2 = 1.6 * Math.sin(6.5 * te + p1h * 6.28);
+                driftZ = (waveZ1 + waveZ2) * flightTimeEnv * turbAmp;
+            } else if (strata < 0.82) {
+                // Mid-Air Tumbling Leaves: 3D pendulum rocking and strictly upward buoyant lift
+                const speedVar = 0.80 + 0.40 * p4h;
+                const maxDist = (22.0 + 7.0 * p3h) * intensity * speedVar;
+                const rockX = Math.sin(rockAngle) * (2.0 + 1.0 * p1h) * (1.0 - uFlight * 0.6);
+                driftX = gx * (maxDist * sDist + rockX);
+
+                const rockY = Math.abs(Math.cos(rockAngle)) * (4.5 + 3.0 * p4h) * flightTimeEnv;
+                const flutterLift = Math.abs(Math.sin(3.0 * te + p2h * 6.28)) * 1.5 * flightTimeEnv * turbAmp;
+                driftY = rockY + flutterLift;
+
+                driftZ = Math.sin(rockAngle * 0.75 + p1h * 6.28) * (3.5 + 2.0 * p2h) * flightTimeEnv * turbAmp;
+            } else {
+                // Ground Skitterers: Gliding & skipping above starting height
+                const maxDist = (18.0 + 5.0 * p2h) * intensity;
+                driftX = gx * (maxDist * sDist);
+                driftY = Math.abs(Math.sin(rockAngle * 1.5)) * (1.8 + 1.0 * p3h) * (1.0 - uFlight * 0.6);
+                driftZ = Math.sin(rockAngle * 0.5) * (2.0 + 0.8 * p4h) * (1.0 - uFlight * 0.6);
+            }
+
+            // Blend sway into dispersed flight
+            Px = Px + driftX * pSurge;
+            Py = Py + driftY * pSurge;
+            Pz = Pz + driftZ * pSurge;
+        }
     }
+
+    // Strict non-descending invariant: particles NEVER drop below their starting height hy
+    Py = Math.max(hy, Py);
+
+    // Phase 4: Precision Harmonic Parachute Landing (9.8 -> 12.0s)
+    let rx = Px, ry = Py, rz = Pz;
+    if (elapsed >= (t1 + t2 + t3)) {
+        const tau4 = elapsed - (t1 + t2 + t3);
+        const st = p2h * 0.20;
+        let q = Math.max(0.0, Math.min(1.0, (tau4 - st) / (t4 - st)));
+        const e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
+        rx = Px + (hx - Px) * e4;
+        ry = Py + (hy - Py) * e4;
+        rz = Pz + (hz - Pz) * e4;
+    }
+
+    // Final safety clamp: Py >= hy ALWAYS
+    ry = Math.max(hy, ry);
+
+    if (out) { out.x = rx; out.y = ry; out.z = rz; return out; }
+    return { x: rx, y: ry, z: rz };
 }
 
 export function evaluateExplosionParticle(ox, oy, oz, rx, ry, rz, maxDist, expDur, driftDur, contrDur, elapsed, out) {
@@ -377,132 +341,125 @@ export function evaluateKineticParticle(i, hx, hy, hz, cd, elapsed, kineticConfi
 // stateless and identical on the GPU shader, Web Worker, and CPU fallback.
 
 export function evaluateTorusParticle(i, hx, hy, hz, cd, elapsed, cfg, out) {
-    const t1 = 3.0;      // Collapse end
-    const T123 = 11.5;   // Knot Flow end
-    const t4 = 4.5;      // Reformation duration
+    const t1 = 2.8;   // Phase 1: Magnetic Pinch & Core Ignition (0.0 -> 2.8s)
+    const t2 = 7.7;   // Phase 2: Helical Plasma Confinement & Flare Surge (2.8 -> 10.5s)
+    const t3 = 3.0;   // Phase 3: Magnetic Cooldown & Laminar Quench (10.5 -> 13.5s)
+    const t4 = 2.5;   // Phase 4: Cold Fusion Re-crystallization (13.5 -> 16.0s)
 
-    // Deterministic per-particle hashes in [0,1)
-    const hA = ((i * 37.119) % 100.0) / 100.0; // slot along the knot
-    const hB = ((i * 61.19) % 100.0) / 100.0;  // collapse delay
-    const hD = ((i * 29.17) % 100.0) / 100.0;  // release delay
-    const hE = ((i * 53.17) % 100.0) / 100.0;  // tube radius
-    const hF = ((i * 91.73) % 100.0) / 100.0;  // tube angle
+    const p1h = ((i * 37.119) % 100.0) / 100.0;
+    const p2h = ((i * 61.19) % 100.0) / 100.0;
+    const p3h = ((i * 83.11) % 100.0) / 100.0;
+    const p4h = ((i * 53.17) % 100.0) / 100.0;
 
-    // Precessing frame: tiltX≈60° puts the knot plane nearly face-on to the
-    // camera (nn_z=sin(tiltX)) — projects as the woven 3-lobe clover
-    const tiltX = 1.05 + 0.04 * Math.sin(0.35 * elapsed);
-    const tiltZ = 0.07 + 0.02 * Math.cos(0.30 * elapsed);
+    const te = elapsed * cd;
+
+    // Torus Major & Minor Dimensions
+    const scale = (cfg && cfg.knotScale > 0) ? cfg.knotScale : 14.5;
+    const R0 = scale;             // Major radius of the plasma ring (~14.5u)
+    const r0 = scale * 0.35;       // Minor tube radius (~5.1u)
+
+    // 3-strand helical coil distribution
+    const strandId = i % 3.0;
+    const strandPhase = strandId * 2.094395; // 2*PI/3
+
+    // Toroidal angle (around main ring) and Poloidal angle (around tube core)
+    const theta0 = p1h * 6.283185;
+    const phi0 = p2h * 6.283185 + strandPhase;
+
+    // Confinement angular velocities (safety factor q = 4.0 helical pitch)
+    const omegaToroidal = 0.75 * cd;
+    const omegaPoloidal = 3.20 * cd;
+
+    const theta = theta0 + omegaToroidal * te;
+    const phi = phi0 + omegaPoloidal * te;
+
+    // Pulsating coronal flares and magnetic turbulence
+    const flareEnv = Math.sin(Math.min(Math.PI, Math.max(0.0, (elapsed - t1) / t2) * Math.PI));
+    const flarePulse = Math.pow(Math.abs(Math.sin(3.5 * te + p3h * 6.28318)), 3.0);
+    const flareRadius = (3.5 + 4.5 * p4h) * flarePulse * flareEnv;
+    const flareZ = (2.2 * Math.cos(2.8 * te + p1h * 6.28318)) * flareEnv;
+
+    const currentR = R0 + (r0 * (0.85 + 0.30 * Math.sqrt(p3h)) + flareRadius) * Math.cos(phi);
+    const localX = currentR * Math.cos(theta);
+    const localY = currentR * Math.sin(theta);
+    const localZ = (r0 * (0.85 + 0.30 * Math.sqrt(p3h)) + flareRadius) * Math.sin(phi) + flareZ;
+
+    // 3D Precession and gimbal nutation
+    const tiltX = 0.28 * Math.sin(0.45 * te);
+    const tiltZ = 0.22 * Math.cos(0.35 * te);
     const cTx = Math.cos(tiltX), sTx = Math.sin(tiltX);
     const cTz = Math.cos(tiltZ), sTz = Math.sin(tiltZ);
-    let exX = cTz, exY = sTz, exZ = 0.0;
-    let ezX = -sTz * sTx, ezY = cTz * sTx, ezZ = cTx;
-    const ezLen = Math.sqrt(ezX * ezX + ezY * ezY + ezZ * ezZ) || 1.0;
-    ezX /= ezLen; ezY /= ezLen; ezZ /= ezLen;
-    const nX = exY * ezZ - exZ * ezY;
-    const nY = exZ * ezX - exX * ezZ;
-    const nZ = exX * ezY - exY * ezX;
 
-    // Trefoil as (2,3) torus knot — face-on woven clover like the reference.
-    // Path: ((RK + rK*cos(3u))*cos(2u), (RK + rK*cos(3u))*sin(2u), rK*sin(3u))
-    const S = (cfg && cfg.knotScale > 0) ? cfg.knotScale : 11.0;
-    const RK = S * 0.62, rK = S * 0.34;
-    const rt = S * 0.15 * (1.0 + 0.03 * Math.sin(1.2 * elapsed));
+    // Rotate into world plasma orientation
+    const kx = localX * cTz - localY * sTz;
+    const ky = (localX * sTz + localY * cTz) * cTx - localZ * sTx;
+    const kz = (localX * sTz + localY * cTz) * sTx + localZ * cTx;
 
-    // Slow flow along the knot for readability
-    const u = hA * 6.28318 + 0.14 * elapsed * cd;
-
-    // Path point and analytic tangent (local frame: xy in-plane, z along nn)
-    const s3 = Math.sin(3.0 * u), c3 = Math.cos(3.0 * u);
-    const ringM = RK + rK * c3;
-    const c2 = Math.cos(2.0 * u), s2 = Math.sin(2.0 * u);
-    const pLX = ringM * c2;
-    const pLY = ringM * s2;
-    const pLZ = rK * s3;
-    const tLX = -3.0 * rK * s3 * c2 - 2.0 * ringM * s2;
-    const tLY = -3.0 * rK * s3 * s2 + 2.0 * ringM * c2;
-    const tLZ = 3.0 * rK * c3;
-
-    // Place into world frame (ex, ez in-plane, nn up)
-    const kx = pLX * exX + pLY * ezX + pLZ * nX;
-    const ky = pLX * exY + pLY * ezY + pLZ * nY;
-    const kz = pLX * exZ + pLY * ezZ + pLZ * nZ;
-    const twX = tLX * exX + tLY * ezX + tLZ * nX;
-    const twY = tLX * exY + tLY * ezY + tLZ * nY;
-    const twZ = tLX * exZ + tLY * ezZ + tLZ * nZ;
-    const tLen = Math.sqrt(twX*twX + twY*twY + twZ*twZ) || 1.0;
-    const tX = twX / tLen, tY = twY / tLen, tZ = twZ / tLen;
-
-    const phi = hF * 6.28318 + 0.18 * elapsed * cd;
-    // Solid rope cross-section — one wall per strand, reads as a single tube
-    const rtI = rt * Math.sqrt(hE);
-    const ndotT = nX * tX + nY * tY + nZ * tZ;
-    let nX2 = nX - ndotT * tX, nY2 = nY - ndotT * tY, nZ2 = nZ - ndotT * tZ;
-    const nLen = Math.sqrt(nX2*nX2 + nY2*nY2 + nZ2*nZ2) || 1.0;
-    nX2/=nLen; nY2/=nLen; nZ2/=nLen;
-    const bX = tY*nZ2 - tZ*nY2, bY = tZ*nX2 - tX*nZ2, bZ = tX*nY2 - tY*nX2;
-    const cPhi = Math.cos(phi), sPhi = Math.sin(phi);
-    const kpx = kx + rtI * (cPhi * nX2 + sPhi * bX);
-    const kpy = ky + rtI * (cPhi * nY2 + sPhi * bY);
-    const kpz = kz + rtI * (cPhi * nZ2 + sPhi * bZ);
-
-    let px, py, pz;
+    let Px, Py, Pz;
 
     if (elapsed < t1) {
-        // -- Phase 1: Vortex Collapse — home swings around the axis onto the knot --
-        let p1 = (elapsed - hB * 0.35) / 2.65;
-        p1 = Math.max(0.0, Math.min(1.0, p1));
+        // Phase 1: Magnetic Pinch & Core Ignition (0.0 -> 2.8s)
+        const p1 = elapsed / t1;
         const e1 = p1 * p1 * p1 * (p1 * (p1 * 6.0 - 15.0) + 10.0);
-        // Gentle swirl: small angle keeps ONE visible structure
-        const aR = 0.9 * cd * Math.sin(Math.PI * e1);
-        const cR = Math.cos(aR), sR = Math.sin(aR);
-        const dN = nX * hx + nY * hy + nZ * hz;
-        const cx = nY * hz - nZ * hy;
-        const cy = nZ * hx - nX * hy;
-        const cz = nX * hy - nY * hx;
-        const hx2 = hx * cR + cx * sR + nX * dN * (1.0 - cR);
-        const hy2 = hy * cR + cy * sR + nY * dN * (1.0 - cR);
-        const hz2 = hz * cR + cz * sR + nZ * dN * (1.0 - cR);
-        px = hx2 + (kpx - hx2) * e1;
-        py = hy2 + (kpy - hy2) * e1;
-        pz = hz2 + (kpz - hz2) * e1;
-    } else if (elapsed < T123) {
-        // -- Phase 2: Knot Flow — streaming along the living knot --
-        px = kpx;
-        py = kpy;
-        pz = kpz;
+
+        // Subtle magnetic pinch compression during the first 40% of Phase 1
+        const pinchEnv = Math.sin(Math.min(Math.PI, p1 * 2.5 * Math.PI));
+        const pinchScale = 1.0 - 0.22 * pinchEnv;
+
+        const hxPinch = hx * pinchScale;
+        const hyPinch = hy * pinchScale;
+        const hzPinch = hz * pinchScale;
+
+        // Spiral transition onto the plasma torus
+        const swirlAngle = 1.5 * cd * Math.sin(Math.PI * e1);
+        const cS = Math.cos(swirlAngle), sS = Math.sin(swirlAngle);
+        const sx = hxPinch * cS - hzPinch * sS;
+        const sz = hxPinch * sS + hzPinch * cS;
+
+        Px = sx + (kx - sx) * e1;
+        Py = hyPinch + (ky - hyPinch) * e1;
+        Pz = sz + (kz - sz) * e1;
+    } else if (elapsed < t1 + t2) {
+        // Phase 2: Helical Plasma Confinement & Flare Surge (2.8 -> 10.5s)
+        Px = kx;
+        Py = ky;
+        Pz = kz;
+    } else if (elapsed < t1 + t2 + t3) {
+        // Phase 3: Magnetic Cooldown & Laminar Quench (10.5 -> 13.5s)
+        const p3 = (elapsed - (t1 + t2)) / t3;
+        const e3 = p3 * p3 * (3.0 - 2.0 * p3);
+
+        // Relax flares and orient toward home grid
+        const quenchKx = kx * (1.0 - 0.35 * e3);
+        const quenchKy = ky * (1.0 - 0.35 * e3);
+        const quenchKz = kz * (1.0 - 0.70 * e3);
+
+        Px = quenchKx;
+        Py = quenchKy;
+        Pz = quenchKz;
     } else {
-        // -- Phase 3: Reformation — release swirl, spiral rain back home --
-        let p4 = (elapsed - T123 - hD * 0.25) / 4.25;
-        p4 = Math.max(0.0, Math.min(1.0, p4));
-        const e4 = p4 * p4 * p4 * (p4 * (p4 * 6.0 - 15.0) + 10.0);
-        const aR = 0.9 * cd * Math.sin(Math.PI * e4);
-        const cR = Math.cos(aR), sR = Math.sin(aR);
-        const dN = nX * kpx + nY * kpy + nZ * kpz;
-        const cx = nY * kpz - nZ * kpy;
-        const cy = nZ * kpx - nX * kpz;
-        const cz = nX * kpy - nY * kpx;
-        const kx2 = kpx * cR + cx * sR + nX * dN * (1.0 - cR);
-        const ky2 = kpy * cR + cy * sR + nY * dN * (1.0 - cR);
-        const kz2 = kpz * cR + cz * sR + nZ * dN * (1.0 - cR);
-        px = kx2 + (hx - kx2) * e4;
-        py = ky2 + (hy - ky2) * e4;
-        pz = kz2 + (hz - kz2) * e4;
+        // Phase 4: Cold Fusion Re-crystallization (13.5 -> 16.0s)
+        const tau4 = elapsed - (t1 + t2 + t3);
+        const st = p2h * 0.25;
+        let q = Math.max(0.0, Math.min(1.0, (tau4 - st) / (t4 - st)));
+        const e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
+
+        // Smooth landing onto home text
+        Px = kx * (1.0 - 0.35) * (1.0 - e4) + hx * e4;
+        Py = ky * (1.0 - 0.35) * (1.0 - e4) + hy * e4;
+        Pz = kz * (1.0 - 0.70) * (1.0 - e4) + hz * e4;
     }
 
-    // Turntable yaw about the world vertical (Y) axis: exactly ONE full
-    // revolution during Knot Flow, holding aligned before and after so the
-    // message always lands upright. Shows the knot's full 3D structure.
-    const yawU = Math.max(0.0, Math.min(1.0, (elapsed - t1) / (T123 - t1)));
+    // 360-degree turntable camera yaw during active plasma burn (Phase 2)
+    const yawU = Math.max(0.0, Math.min(1.0, (elapsed - t1) / (t2 + t3)));
     const yawS = yawU * yawU * yawU * (yawU * (yawU * 6.0 - 15.0) + 10.0);
     const yawA = 6.283185307179586 * yawS;
     const cyw = Math.cos(yawA), syw = Math.sin(yawA);
-    const yawX = cyw * px + syw * pz;
-    const yawZ = -syw * px + cyw * pz;
-    px = yawX;
-    pz = yawZ;
+    const finalX = cyw * Px + syw * Pz;
+    const finalZ = -syw * Px + cyw * Pz;
 
-    if (out) { out.x = px; out.y = py; out.z = pz; return out; }
-    return { x: px, y: py, z: pz };
+    if (out) { out.x = finalX; out.y = Py; out.z = finalZ; return out; }
+    return { x: finalX, y: Py, z: finalZ };
 }
 
 // ---------------------------------------------
@@ -527,319 +484,132 @@ export function evaluateTorusParticle(i, hx, hy, hz, cd, elapsed, cfg, out) {
 // Missing fields fall back to defaults that reproduce the pre-upgrade sweep.
 
 export function evaluateMurmurationParticle(i, hx, hy, hz, cd, elapsed, cfg, out) {
-    const t1 = 2.0;      // Take-off
-    const t2 = 7.0;      // Flight
-    const t3 = 3.0;      // Settle
-    const t4 = 2.0;      // Landing
-    const T12 = t1 + t2;
-    const T123 = t1 + t2 + t3;
+    const t1 = 2.0;  // Phase 1: Launch & Pod Separation (0.0 -> 2.0s)
+    const t2 = 7.0;  // Phase 2: Independent Flanking -> Mid-Flight Merge -> Re-separation (2.0 -> 9.0s)
+    const t3 = 3.0;  // Phase 3: Settle & Harmonized Swarm (9.0 -> 12.0s)
+    const t4 = 2.0;  // Phase 4: Precision Landing (12.0 -> 14.0s)
 
-    // -- Randomized flight plan (defaults reproduce the original sweep) --
     const c = cfg || {};
-    const swX = (c.mSweepX != null) ? c.mSweepX : 24.0;
-    const swY = (c.mSweepY != null) ? c.mSweepY : 4.0;
-    const swZ = (c.mSweepZ != null) ? c.mSweepZ : 12.0;
-    const fX = (c.mFreqX != null) ? c.mFreqX : 3.456;
-    const fY = (c.mFreqY != null) ? c.mFreqY : 5.341;
-    const fZ = (c.mFreqZ != null) ? c.mFreqZ : 2.827;
-    const phX = (c.mPhX != null) ? c.mPhX : 0.4;
-    const phY = (c.mPhY != null) ? c.mPhY : 0.0;
-    const phZ = (c.mPhZ != null) ? c.mPhZ : 1.2;
+    // Per-blast randomized trajectory & novelty parameters
+    const swX = (c.mSweepX != null) ? c.mSweepX : 28.0;
+    const swY = (c.mSweepY != null) ? c.mSweepY : 7.0;
+    const swZ = (c.mSweepZ != null) ? c.mSweepZ : 16.0;
+    const fX = (c.mFreqX != null) ? c.mFreqX : 0.52;
+    const fY = (c.mFreqY != null) ? c.mFreqY : 0.95;
+    const fZ = (c.mFreqZ != null) ? c.mFreqZ : 0.46;
+    const phX = (c.mPhX != null) ? c.mPhX : 0.0;
+    const phY = (c.mPhY != null) ? c.mPhY : 1.2;
+    const phZ = (c.mPhZ != null) ? c.mPhZ : 2.4;
     const launchDir = (c.mLaunchDir != null) ? c.mLaunchDir : 1.0;
-
-    // -- Randomized event schedule & chaos levels (defaults reproduce the
-    //    pre-upgrade behavior: no snap turn, no split, no boil/jink, the two
-    //    original predator windows, unit multipliers) --
-    const turnT = (c.mTurnT != null) ? c.mTurnT : 99.0;
     const turnDir = (c.mTurnDir != null) ? c.mTurnDir : 1.0;
-    const splitT = (c.mSplitT != null) ? c.mSplitT : 99.0;
-    const splitAng = (c.mSplitAng != null) ? c.mSplitAng : 0.0;
-    const d1T = (c.mDodge1T != null) ? c.mDodge1T : 3.9;
-    const d2T = (c.mDodge2T != null) ? c.mDodge2T : 7.1;
-    const d3T = (c.mDodge3T != null) ? c.mDodge3T : 99.0;
-    const dodgeRad = (c.mDodgeRad != null) ? c.mDodgeRad : 8.0;
-    const dodgeStr = (c.mDodgeStr != null) ? c.mDodgeStr : 1.0;
-    const boilAmp = (c.mBoilAmp != null) ? c.mBoilAmp : 0.0;
-    const boilFreq = (c.mBoilFreq != null) ? c.mBoilFreq : 14.0;
-    const churnMult = (c.mChurnMult != null) ? c.mChurnMult : 1.0;
-    const flutterMult = (c.mFlutterMult != null) ? c.mFlutterMult : 1.0;
-    const jinkAmp = (c.mJinkAmp != null) ? c.mJinkAmp : 0.0;
-    const jinkFreq = (c.mJinkFreq != null) ? c.mJinkFreq : 5.5;
-    const jinkPh = (c.mJinkPh != null) ? c.mJinkPh : 0.0;
     const breathAmp = (c.mBreathAmp != null) ? c.mBreathAmp : 1.0;
-    const scoutAmp = (c.mScoutAmp != null) ? c.mScoutAmp : 0.0;
+    const jinkAmp = (c.mJinkAmp != null) ? c.mJinkAmp : 1.0;
+    const podRot = (c.mPodAngle != null) ? c.mPodAngle : 0.0;
+    const mergeCenter = (c.mMergeTime != null) ? c.mMergeTime : 6.8;
 
-    // Flight-end blob radius: breathing depth is randomized per blast, so the
-    // frozen t=9s value must scale with it to keep settle/landing seamless.
-    const rFlightEnd = 11.0 + breathAmp * (3.4 * Math.sin(0.85 * 9.0 + 0.7) + 1.7 * Math.sin(1.65 * 9.0));
-
-    // Flight-end constants (analytic at u = 1) keep settle/landing seamless for
-    // any randomized plan. Cy's second lobe term vanishes at u = 1 (sin(pi)=0).
-    const endCx = swX * Math.sin(fX + phX);
-    const endCy = swY * Math.sin(fY + phY);
-    const endCz = swZ * Math.sin(fZ + phZ);
-    const setCx = endCx * 0.25;
-    const setCy = endCy * 0.25 + 1.5;
-    const setCz = endCz * 0.25;
-    const kvx = swX * fX / 7.0, kvy = swY * fY / 7.0, kvz = swZ * fZ / 7.0;
-    const evx = kvx * Math.cos(fX + phX);
-    const evy = kvy * Math.cos(fY + phY) - 1.346;   // + 3*pi/7 * cos(pi) term
-    const evz = kvz * Math.cos(fZ + phZ);
-    const evlen = Math.sqrt(evx * evx + evy * evy + evz * evz) || 1.0;
-    const evxN = evx / evlen, evyN = evy / evlen, evzN = evz / evlen;
-    const ea = 0.60 * Math.min(1.0, evlen / 10.0);
-
-    // Deterministic per-particle hashes in [0,1)
     const p1h = ((i * 37.119) % 100.0) / 100.0;
     const p2h = ((i * 61.19) % 100.0) / 100.0;
     const p3h = ((i * 83.11) % 100.0) / 100.0;
     const p4h = ((i * 53.17) % 100.0) / 100.0;
-    const p6h = ((i * 97.31) % 100.0) / 100.0;   // darting-scout selector
-    const ph1 = p1h * 6.28318;
-    const ph2 = p2h * 6.28318;
-    const ph3 = p3h * 6.28318;
 
-    // Launch ripple: particles lift off in a sweep across the message
-    const delay = (launchDir > 0.0 ? hx + 50.0 : 50.0 - hx) * 0.017 + p2h * 0.55;
+    // Staggered launch delay
+    const sweepCoord = (launchDir > 0.0) ? (hx + 45.0) : (45.0 - hx);
+    const delay = sweepCoord * 0.010 + p2h * 0.35;
     const lt = elapsed - delay;
     if (lt <= 0.0) {
         if (out) { out.x = hx; out.y = hy; out.z = hz; return out; }
         return { x: hx, y: hy, z: hz };
     }
-    let lbRaw = Math.min(1.0, lt / 0.9);
-    const lb = lbRaw * lbRaw * (3.0 - 2.0 * lbRaw);
-    const hop = Math.sin(lbRaw * Math.PI) * 2.2;
+
+    let lb = Math.min(1.0, lt / 1.0);
+    lb = lb * lb * (3.0 - 2.0 * lb);
+    const hop = Math.sin(Math.min(1.0, lt / 1.0) * Math.PI) * 1.8;
 
     const te = elapsed * cd;
 
-    // Snap-turn pulse: sharp linear rise/fall window centered on turnT
-    const tRise = Math.max(0.0, Math.min(1.0, (elapsed - (turnT - 0.45)) / 0.45));
-    const tFall = Math.max(0.0, Math.min(1.0, (elapsed - turnT) / 0.45));
-    const turnPulse = tRise * (1.0 - tFall);
+    // Swarm Base Path Center C(t)
+    const Cx = swX * Math.sin(fX * te + phX);
+    const Cy = swY * Math.sin(fY * te + phY) + 2.5 * Math.cos(0.35 * te);
+    const Cz = swZ * Math.cos(fZ * te + phZ);
 
-    // Split-and-merge envelope: 1.2s full-separation plateau around splitT
-    const sRise = Math.max(0.0, Math.min(1.0, (elapsed - (splitT - 1.0)) / 0.4));
-    const sFall = Math.max(0.0, Math.min(1.0, (elapsed - (splitT + 0.6)) / 0.4));
-    const splitEnv = sRise * (1.0 - sFall);
+    // Analytic Velocity / Tangent Vector along Path
+    const Vx = swX * fX * Math.cos(fX * te + phX);
+    const Vy = swY * fY * Math.cos(fY * te + phY) - 0.88 * Math.sin(0.35 * te);
+    const Vz = -swZ * fZ * Math.sin(fZ * te + phZ);
+    const speed = Math.sqrt(Vx * Vx + Vy * Vy + Vz * Vz) || 1.0;
+    const tx = Vx / speed, ty = Vy / speed, tz = Vz / speed;
 
-    // -- Shared flock center path (continuous across flight/settle/landing) --
-    // Also derives the analytic flock velocity, used to stream the blob along
-    // its direction of travel like a real starling cloud.
-    let Cx, Cy, Cz, churn, blobR, vX, vY, vZ, strA;
-    if (elapsed < T12) {
-        const u = Math.max(0.0, (elapsed - t1) / t2);
-        Cx = swX * Math.sin(u * fX + phX);
-        Cy = swY * Math.sin(u * fY + phY) + 3.0 * Math.sin(u * Math.PI);
-        Cz = swZ * Math.sin(u * fZ + phZ);
-        // Whip jinks: higher-frequency lobes on the flight path. The sin(pi*u)
-        // envelope zeroes them exactly at take-off and flight-end so the
-        // settle/landing end-constants stay valid.
-        const jk = jinkAmp * Math.sin(Math.PI * u);
-        Cx += jk * Math.sin(u * jinkFreq + jinkPh);
-        Cy += jk * 0.6 * Math.sin(u * jinkFreq * 0.83 + jinkPh + 1.7);
-        Cz += jk * Math.cos(u * jinkFreq * 0.91 + jinkPh + 3.1);
-        churn = 1.0;
-        // Breathing flock volume: two superposed pulses swell and contract the
-        // whole cloud organically through the flight window.
-        blobR = 11.0 + breathAmp * (3.4 * Math.sin(0.85 * elapsed + 0.7) + 1.7 * Math.sin(1.65 * elapsed));
-        const dvx = kvx * Math.cos(u * fX + phX);
-        const dvy = kvy * Math.cos(u * fY + phY) + 1.346 * Math.cos(u * Math.PI);
-        const dvz = kvz * Math.cos(u * fZ + phZ);
-        const vlen = Math.sqrt(dvx * dvx + dvy * dvy + dvz * dvz) || 1.0;
-        vX = dvx / vlen; vY = dvy / vlen; vZ = dvz / vlen;
-        strA = 0.60 * Math.min(1.0, vlen / 10.0);
-        strA *= 1.0 + 0.55 * turnPulse;   // shear harder through snap turns
-    } else if (elapsed < T123) {
-        const s0 = (elapsed - T12) / t3;
-        const s = s0 * s0 * (3.0 - 2.0 * s0);
-        Cx = endCx * (1.0 - 0.75 * s);
-        Cy = endCy * (1.0 - 0.75 * s) + 1.5 * s;
-        Cz = endCz * (1.0 - 0.75 * s);
-        churn = 1.0 - 0.7 * s;
-        blobR = rFlightEnd * (1.0 - 0.55 * s);   // flock condenses to land
-        vX = evxN; vY = evyN; vZ = evzN;
-        strA = ea * (1.0 - 0.75 * s);
-    } else {
-        const tau4 = elapsed - T123;
-        churn = 0.3 * (1.0 - Math.min(1.0, tau4 / t4));
-        // Continue seamlessly from the settle-end center, relaxing into a tiny
-        // per-particle hover orbit as the landing progresses.
-        let sq = tau4 / 1.5; sq = Math.min(1.0, sq); sq = sq * sq * (3.0 - 2.0 * sq);
-        const hx0 = 1.6 * Math.sin(te * 1.05 + ph1);
-        const hy0 = 1.0 + Math.sin(te * 0.83 + ph2);
-        const hz0 = 1.2 * Math.cos(te * 0.95 + ph3);
-        Cx = setCx + (hx0 - setCx) * sq;
-        Cy = setCy + (hy0 - setCy) * sq;
-        Cz = setCz + (hz0 - setCz) * sq;
-        blobR = rFlightEnd * 0.45;
-        vX = evxN; vY = evyN; vZ = evzN;
-        strA = ea * 0.25 * (1.0 - Math.min(1.0, tau4 / t4));
-    }
+    // Smooth Orthogonal Normal & Binormal (singularity-free)
+    const roll = (0.50 * te + phX * 0.5) * turnDir;
+    const pitch = 0.30 * te + phY * 0.5;
+    const nx = Math.cos(roll) * (1.0 - ty * ty * 0.5);
+    const ny = Math.sin(pitch) * 0.7;
+    const nz = -Math.sin(roll);
+    const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1.0;
+    const unx = nx / nLen, uny = ny / nLen, unz = nz / nLen;
 
-    // -- Flock slot: fixed point inside the blob volume --
-    // Exponent 0.5 gives volume density falling off from the core (r^-1):
-    // dense center, soft rim. (Exponents < 1/3 are shell-weighted and read as
-    // a ring — avoid.) The cloud is flattened like a real starling flock.
-    const slotTh = ph1;
-    const cosPhi = 2.0 * p2h - 1.0;
-    const sinPhi = Math.sqrt(Math.max(0.0, 1.0 - cosPhi * cosPhi));
-    const slotMag = Math.sqrt(p3h);
+    const bx = uny * tz - unz * ty;
+    const by = unz * tx - unx * tz;
+    const bz = unx * ty - uny * tx;
 
-    // -- Directional lobes: low-frequency radial modulation of the volume --
-    // The cloud constantly bulges and folds asymmetrically (several lobes
-    // around the azimuth plus top/bottom asymmetry), so no sphere silhouette
-    // can ever be read — this is the anti-"ball" term.
-    const lobe = 1.0
-        + 0.30 * Math.sin(2.2 * slotTh + 1.8 * cosPhi + 0.45 * te)
-        + 0.16 * Math.cos(3.3 * slotTh - 2.4 * cosPhi + 0.62 * te);
+    // 2 Distinct Murmuration Pods: Pod +1 and Pod -1
+    const podSide = (i % 2 === 0) ? 1.0 : -1.0;
 
-    let sx = slotMag * sinPhi * Math.cos(slotTh) * blobR * lobe;
-    let sy = slotMag * cosPhi * 0.72 * blobR * lobe;
-    let sz = slotMag * sinPhi * Math.sin(slotTh) * blobR * lobe;
+    // Smooth Mid-Flight Merge & Re-separation Bell Curve (Peak at mergeCenter ~6.8s)
+    const uM = (elapsed - mergeCenter) / 1.6;
+    const mergeEnvelope = Math.exp(-uM * uM);
 
-    // -- Sub-swarms: six overlapping clumps that wander semi-independently --
-    // This is what breaks the silhouette into lumpy, merging sub-clouds.
-    const p5h = ((i * 71.53) % 100.0) / 100.0;
-    const swId = Math.floor(p5h * 6.0);
-    const swScale = blobR / 11.0;
-    const swAmp = (4.5 + 3.0 * p1h) * swScale;
-    const ox = swAmp * Math.sin(0.71 * swId + 0.50 * te + p5h * 6.28);
-    const oy = swAmp * 0.7 * Math.sin(1.13 * swId + 0.38 * te + p2h * 6.28);
-    const oz = swAmp * 0.8 * Math.cos(0.87 * swId + 0.45 * te + p3h * 6.28);
+    // Flocking pod separation: contracts smoothly to 0 during merge, expands during independent flight
+    const independentSep = (7.5 + 3.0 * breathAmp) * (1.0 - mergeEnvelope);
+    const flankAngle = 0.85 * te * turnDir + podRot;
 
-    // -- Velocity-aligned streaming --
-    // Stretch the blob along its direction of travel and pull the back edge and
-    // outer shell into trailing streamers, so the flock shears as it turns.
-    const cx0 = sx, cy0 = sy, cz0 = sz;   // pre-transform slot, churn input
-    const along = sx * vX + sy * vY + sz * vZ;
-    const pxp = sx - vX * along, pyp = sy - vY * along, pzp = sz - vZ * along;
-    const back = Math.max(0.0, -along);
-    const shell = Math.max(0.0, slotMag - 0.9) / 0.1;
-    const trail = (back * 1.7 + shell * 2.6) * strA * (0.55 + 0.45 * p4h) * swScale;
-    const stretch = 1.0 + strA;
-    sx = pxp * 0.80 + vX * (along * stretch - trail);
-    sy = pyp * 0.80 + vY * (along * stretch - trail);
-    sz = pzp * 0.80 + vZ * (along * stretch - trail);
+    const podOffsetX = (unx * Math.cos(flankAngle) + bx * Math.sin(flankAngle)) * (podSide * independentSep);
+    const podOffsetY = (uny * Math.cos(flankAngle) + by * Math.sin(flankAngle)) * (podSide * independentSep);
+    const podOffsetZ = (unz * Math.cos(flankAngle) + bz * Math.sin(flankAngle)) * (podSide * independentSep);
 
-    // -- Churn field: coherent swirl keyed on slot position --
-    let Fx = churnMult * 5.6 * Math.sin(0.40 * cy0 + 1.25 * te + ph1);
-    let Fy = churnMult * 4.4 * Math.sin(0.48 * cx0 - 1.05 * te + ph2);
-    let Fz = churnMult * 4.8 * Math.cos(0.36 * cx0 + 0.30 * cy0 + 0.90 * te + ph3);
+    // Dynamic 3D Stretching & Concentration:
+    const speedFactor = Math.min(1.0, speed / 14.0);
+    const stretchLongitudinal = (0.9 + 2.0 * speedFactor * breathAmp) * (1.0 - 0.30 * mergeEnvelope);
+    const blobRadiusScale = (1.0 + 0.50 * mergeEnvelope);
+    const stretchLateral = blobRadiusScale / Math.sqrt(Math.max(0.4, stretchLongitudinal));
 
-    // Wingbeat flutter
-    const wf = 8.5 + 4.0 * p4h;
-    const fl = Math.sin(wf * te + ph1);
-    Fx += flutterMult * 0.5 * fl;
-    Fy += flutterMult * 1.3 * fl;
-    Fz += flutterMult * 0.4 * Math.sin(wf * 0.87 * te + ph2);
+    // True 3D Solid Volumetric Dispersion (Gaussian-like core, NO hollow rings)
+    const baseRadius = Math.cbrt(p1h) * (4.8 + 2.4 * p4h) * stretchLateral;
+    const theta0 = p2h * 6.283185;
+    const cosPhi0 = (p3h - 0.5) * 2.0; // [-1, 1]
+    const sinPhi0 = Math.sqrt(Math.max(0.0, 1.0 - cosPhi0 * cosPhi0));
 
-    // Boil turbulence: incommensurate high-frequency layer keyed on the slot,
-    // giving individual birds chaotic interior jitter (the "living" look).
-    Fx += boilAmp * Math.sin(boilFreq * te + 1.9 * cy0 + ph2);
-    Fy += boilAmp * 0.8 * Math.sin(boilFreq * 0.87 * te - 1.6 * cx0 + ph3);
-    Fz += boilAmp * Math.cos(boilFreq * 0.71 * te + 1.3 * (cx0 + cy0) + ph1);
+    // Fluid-like 3D Convolution: Bounded phase integration
+    const swirlAngle = (2.2 + 1.2 * p1h) * turnDir * te + p2h * 6.28 + 0.12 * hx;
+    const thetaConvolute = theta0 + swirlAngle;
 
-    Fx *= churn; Fy *= churn; Fz *= churn;
+    const morphX = 1.0 + 0.25 * Math.sin(1.8 * te + p3h * 3.14);
+    const morphY = 1.0 + 0.25 * Math.cos(2.2 * te + p1h * 3.14);
 
-    let Px = Cx + ox + sx + Fx;
-    let Py = Cy + oy + sy + Fy;
-    let Pz = Cz + oz + sz + Fz;
+    const localTan = (baseRadius * sinPhi0 * Math.cos(thetaConvolute)) * stretchLongitudinal;
+    const localNorm = (baseRadius * sinPhi0 * Math.sin(thetaConvolute) * morphX);
+    const localBinorm = (baseRadius * cosPhi0 * morphY);
 
-    // -- Snap-turn bank impulse: whip the whole flock sideways mid-flight --
-    if (turnPulse > 0.0) {
-        const bkX = vY, bkY = -vX;
-        const bkN = Math.sqrt(bkX * bkX + bkY * bkY + 2.5e-3);
-        const bankMag = turnDir * 8.0 * turnPulse;
-        Px += (bkX / bkN) * bankMag;
-        Py += (bkY / bkN) * bankMag;
-    }
+    // Shearing & Internal Eddy Waves
+    const shearWave = Math.sin(0.18 * (hx + Cx) - 2.2 * te + podSide * 1.5) * (1.6 * jinkAmp);
+    const churnX = Math.sin(2.4 * te + p1h * 6.28 + hx * 0.08) * (1.2 * jinkAmp);
+    const churnY = Math.cos(2.8 * te + p2h * 6.28 + hy * 0.08) * (0.9 * jinkAmp);
+    const churnZ = Math.sin(2.1 * te + p3h * 6.28 + hz * 0.08) * (1.2 * jinkAmp);
 
-    // -- Split & merge: tear the six sub-swarms into two lobes along a random
-    //    horizontal axis, fly them apart, then pour them back together --
-    if (splitEnv > 0.0) {
-        const sideSign = (swId < 3.0) ? 1.0 : -1.0;
-        const sepMag = sideSign * 7.5 * splitEnv * swScale;
-        Px += Math.cos(splitAng) * sepMag;
-        Pz += Math.sin(splitAng) * sepMag;
-    }
+    // Assemble 3D World Position of the Volumetric Morphing Blob
+    let Px = Cx + podOffsetX + tx * localTan + unx * localNorm + bx * (localBinorm + shearWave) + churnX;
+    let Py = Cy + podOffsetY + ty * localTan + uny * localNorm + by * (localBinorm + shearWave) + churnY + hop;
+    let Pz = Cz + podOffsetZ + tz * localTan + unz * localNorm + bz * (localBinorm + shearWave) + churnZ;
 
-    // -- Darting scouts: rare individuals streak out of the blob and snap back --
-    if (p6h > 0.93 && churn > 0.01 && scoutAmp > 0.0) {
-        const dartRate = (1.55 + 1.3 * p1h) * Math.PI;
-        let dw = Math.sin(te * dartRate + p6h * 40.0 + ph2);
-        if (dw > 0.0) {
-            dw *= dw; dw *= dw; dw *= dw;   // sin^8: brief hard bursts
-            const slotLen = Math.sqrt(cx0 * cx0 + cy0 * cy0 + cz0 * cz0) || 1.0;
-            const dartMag = scoutAmp * (4.0 + 2.5 * p3h) * dw * churn;
-            Px += (cx0 / slotLen) * dartMag;
-            Py += (cy0 / slotLen) * dartMag;
-            Pz += (cz0 / slotLen) * dartMag;
-        }
-    }
-
-    // -- Predator dodges: up to three sweeping exclusion cavities shape-shift
-    //    the flock at per-blast randomized times with a random strike radius
-    //    and parting force --
-    if (elapsed > 2.0 && elapsed < 9.0) {
-        // Window envelope per attack: linear rise/fall ramps around its center
-        let wA = Math.max(0.0, Math.min(1.0, (elapsed - (d1T - 1.1)) / 0.4));
-        wA *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - (d1T + 1.1)) / 0.4));
-        let wB = Math.max(0.0, Math.min(1.0, (elapsed - (d2T - 1.1)) / 0.4));
-        wB *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - (d2T + 1.1)) / 0.4));
-        let wC = Math.max(0.0, Math.min(1.0, (elapsed - (d3T - 1.1)) / 0.4));
-        wC *= 1.0 - Math.max(0.0, Math.min(1.0, (elapsed - (d3T + 1.1)) / 0.4));
-        const wEnv = Math.max(wA, Math.max(wB, wC));
-        const dodgeIdx = (wC >= wA && wC >= wB) ? 2.0 : ((wB >= wA) ? 1.0 : 0.0);
-        if (wEnv > 0.001) {
-            // The predator rides the flock's own flight path with a lateral
-            // weave (phase-offset per attack), so the dodge is guaranteed to
-            // cut through the blob.
-            const qt = Math.min(8.9, elapsed * 0.92 + 1.1);
-            const qU = Math.max(0.0, (qt - 2.0) / 7.0);
-            const wo = dodgeIdx * 2.094;
-            const qx = swX * Math.sin(qU * fX + phX) + 5.0 * Math.sin(1.7 * elapsed + 1.0 + wo);
-            const qy = swY * Math.sin(qU * fY + phY) + 3.0 * Math.sin(qU * Math.PI) + 2.0 * Math.sin(1.3 * elapsed + wo);
-            const qz = swZ * Math.sin(qU * fZ + phZ) + 4.0 * Math.sin(1.6 * elapsed + 2.0 + wo);
-            const dx = Px - qx, dy = Py - qy;
-            const d = Math.sqrt(dx * dx + dy * dy + (Pz - qz) * (Pz - qz));
-            // Part the flock around the predator: slide particles sideways
-            // relative to the flow direction instead of pushing them radially.
-            // A radial push compresses displaced particles into a visible rim
-            // ring; tangential parting preserves radial density and reads as
-            // the flock cleaving around a falcon. Magnitude fades to zero at
-            // the cavity rim and on the parting mid-plane, so nothing snaps.
-            const rad = dodgeRad;
-            if (d < rad) {
-                const x = d / rad;
-                let rise = x / 0.5; rise = Math.min(1.0, rise); rise = rise * rise * (3.0 - 2.0 * rise);
-                let fall = (x - 0.6) / 0.4; fall = Math.max(0.0, Math.min(1.0, fall)); fall = fall * fall * (3.0 - 2.0 * fall);
-                // In-plane perpendicular to the flock's travel direction,
-                // smoothly attenuated so near-vertical turnarounds fade the
-                // parting out instead of switching it off abruptly.
-                let pvx = vY, pvy = -vX;
-                const pn = Math.sqrt(pvx * pvx + pvy * pvy + 0.0025);
-                pvx /= pn; pvy /= pn;
-                const sideDist = dx * pvx + dy * pvy;
-                const part = (sideDist / rad) * (rise * (1.0 - fall)) * 7.0 * dodgeStr * wEnv * (0.75 + 0.5 * p4h);
-                Px += pvx * part;
-                Py += pvy * part;
-            }
-        }
-    }
-
-    // -- Assemble: landing blend, then take-off blend from home --
-    let rx = Px;
-    let ry = Py + hop;
-    let rz = Pz;
-
-    if (elapsed >= T123) {
-        const tau4 = elapsed - T123;
-        const st = p2h * 0.5;
-        let q = (tau4 - st) / (t4 - st);
-        q = Math.max(0.0, Math.min(1.0, q));
+    // Phase 4: Precision Landing Blend (12.0 -> 14.0s)
+    let rx = Px, ry = Py, rz = Pz;
+    if (elapsed >= (t1 + t2 + t3)) {
+        const tau4 = elapsed - (t1 + t2 + t3);
+        const st = p2h * 0.35;
+        let q = Math.max(0.0, Math.min(1.0, (tau4 - st) / (t4 - st)));
         const e4 = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);
         rx = Px + (hx - Px) * e4;
-        ry = (Py + hop) + (hy - Py - hop) * e4;
+        ry = Py + (hy - Py) * e4;
         rz = Pz + (hz - Pz) * e4;
     }
 
